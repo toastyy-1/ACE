@@ -11,8 +11,8 @@
 #include "types.hpp"
 #include "sim/rocket.hpp"
 
-Vec3 INS::read_INS_acc(const Rocket& r, const Vec3& g) {
-    return add_noise(r.a - g, acc_noise);
+Vec3 INS::read_INS_acc(const Rocket& r) {
+    return add_noise(r.a_spec, acc_noise);
 }
 
 Vec3 INS::read_INS_gyr(const Rocket& r) {
@@ -119,7 +119,7 @@ void FlightController::init(Rocket& r, double current_time) {
 // aquires new data from the sim
 void FlightController::pull_new_data(const Rocket& r, double current_time) {
     cs.g = ins.read_INS_grav(r);
-    cs.a_inertial = ins.read_INS_acc(r, cs.g);
+    cs.a_inertial = ins.read_INS_acc(r);
     cs.a = cs.a_inertial + cs.g;
     cs.w = ins.read_INS_gyr(r);
     cs.dt = current_time - cs.time;

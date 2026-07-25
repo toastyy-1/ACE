@@ -59,9 +59,13 @@ SimConfig load_sim_config(const std::string& path) {
                     s.id                    = value_or(st, "id", 0.0);
                     s.m_dry                 = value_or(st, "dry_mass", 0.0);
                     s.m_fuel                = value_or(st, "fuel_mass", 0.0);
+                    s.m_fuel_full           = s.m_fuel;
                     s.isp                   = value_or(st, "isp", 0.0);
+                    s.isp_sea_level         = value_or(st, "isp_sea_level", 0.0);
                     s.tip_to_end_length     = value_or(st, "length", 0.0);
                     s.CoM_dist              = value_or(st, "com_distance", 0.0);
+                    s.fuel_CoM_dist         = value_or(st, "fuel_com_distance", s.CoM_dist);
+                    s.fuel_length           = value_or(st, "fuel_length", 0.0);
                     s.max_thrust            = value_or(st, "max_thrust", 0.0);
                     s.engine_distance       = value_or(st, "engine_distance", 0.0);
                     s.engine_gimball_range  = value_or(st, "gimbal_range_deg", 0.0);

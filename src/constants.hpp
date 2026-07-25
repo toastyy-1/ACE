@@ -16,6 +16,7 @@ constexpr double G    = 6.67430e-11;
 constexpr double g0   = 9.80665;
 constexpr double R_d  = 287.05287;
 constexpr double p_b  = 1.2250;
+constexpr double p_sl = 101325.0;
 
 // WGS84
 constexpr double EARTH_RADIUS         = 6378137.0;

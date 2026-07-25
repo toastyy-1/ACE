@@ -132,8 +132,9 @@ Vec3 Rocket::nose_direction_eci() {
 
 /**
  * net torque about the combined CopM in body frame
+ * @param thrust_scale isp change as pressure changes
  */
-Vec3 Rocket::net_body_torque() const {
+Vec3 Rocket::net_body_torque(double thrust_scale) const {
     Vec3 net_torque = {0, 0, 0};
 
     // thrust direction in body frame
@@ -146,7 +147,7 @@ Vec3 Rocket::net_body_torque() const {
     double s_engine = active().tip_to_end_length - active().engine_distance;
     Vec3 r_engine = {0, 0, s_engine - z_cm};
 
-    net_torque += r_engine.cross(thrust_dir_body * active().thrust);
+    net_torque += r_engine.cross(thrust_dir_body * (active().thrust * thrust_scale));
     if (rcs_active) net_torque += applied_rcs_moment;
 
     return net_torque;
@@ -168,18 +169,19 @@ static Vec3 calc_gravity_accel(const Vec3& r) {
     };
 }
 
-// acceleration due to drag in the ECI frame
-Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v) {
-    double altitude = r.norm() - EARTH_RADIUS; // altitude in meters
-    double air_density;
+// standard atmosphere layers
+static void atmosphere(double altitude, double& air_density, double& air_pressure) {
+    double T = 288.15; // layer temperature, set by whichever branch runs
 
     // power relationship density equation
-    auto pow_dens = [&altitude](double rho_b, double T_b, double L, double layer_base_alt) {
-        return rho_b * pow(( (T_b + L * (altitude - layer_base_alt)) / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
+    auto pow_dens = [&](double rho_b, double T_b, double L, double layer_base_alt) {
+        T = T_b + L * (altitude - layer_base_alt);
+        return rho_b * pow(( T / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
     };
 
     // exponential relationship density equation
-    auto exp_dens = [&altitude](double rho_b, double T_b, double layer_base_alt) {
+    auto exp_dens = [&](double rho_b, double T_b, double layer_base_alt) {
+        T = T_b;
         return rho_b * exp(-1.0 * (g0 * (altitude - layer_base_alt)) / (R_d * T_b));
     };
 
@@ -216,6 +218,14 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v) {
         air_density = exp_dens(0.000006958, 186.87, 86000);
     }
 
+    air_pressure = air_density * R_d * T;
+}
+
+// acceleration due to drag in the ECI frame
+Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, double mass) {
+    double air_density, air_pressure;
+    atmosphere(r.norm() - EARTH_RADIUS, air_density, air_pressure);
+
     // wind of earth spinning
     Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
     Vec3 v_air = w_earth.cross(r);
@@ -232,7 +242,7 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v) {
     // @todo apply drag (shid rn add a real drag model idoit) ((idfk how im going to do that simply))
     double area = M_PI * props.radius * props.radius;
     double drag_mag = 0.5 * air_density * craft_speed * craft_speed * props.Cd * area;
-    return v_relative * (-drag_mag / (m_current * craft_speed));
+    return v_relative * (-drag_mag / (mass * craft_speed));
 }
 
 static Quat quat_deriv(const Quat& q, const Vec3& w) {
@@ -248,16 +258,29 @@ void Rocket::update_dynamics(double current_time) {
     // time step for the simulation
     double dt = TIME_STEP;
 
-    // distance from center of earth
-    double r_norm = r.norm();
+    // propellant drain
+    Stage& s = active();
+    double mdot = s.mass_flow_rate();
+    if (mdot * dt > s.m_fuel) mdot = s.m_fuel / dt;
+
+    // adjust thrust for isp change
+    double air_density, air_pressure;
+    atmosphere(r.norm() - EARTH_RADIUS, air_density, air_pressure);
+    double thrust_scale;
+    if (s.isp > 0) {
+        thrust_scale = s.isp_at(air_pressure) / s.isp;
+    } else {
+        thrust_scale = 1.0;
+    }
 
     // quantities the FC commands
-    double thrust_mag = calculate_engine_thrust_component();
-    Vec3 net_torque = net_body_torque();
+    double thrust_mag = calculate_engine_thrust_component() * thrust_scale;
+    Vec3 net_torque = net_body_torque(thrust_scale);
 
     // translational acceleration
-    auto accel = [&](const Vec3& r_i, const Vec3& v_i, const Quat& q_i) {
-        return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i) + nose_from_quat(q_i) * (thrust_mag / m);
+    auto accel = [&](double t_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i) {
+        double m_i = m - mdot * t_i;
+        return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + nose_from_quat(q_i) * (thrust_mag / m_i);
     };
 
     // angular acceleration
@@ -279,7 +302,7 @@ void Rocket::update_dynamics(double current_time) {
     // k1 terms                       //
     ////////////////////////////////////
     Vec3 k1_r = v;
-    Vec3 k1_v = accel(r, v, q_rocket);
+    Vec3 k1_v = accel(0.0, r, v, q_rocket);
     Vec3 k1_w = ang_accel(w);
     Quat k1_q = quat_deriv(q_rocket, w);
 
@@ -291,7 +314,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w2 = w + k1_w * (dt / 2);
     Quat q2 = q_rocket + k1_q * (dt / 2);
     Vec3 k2_r = v2;
-    Vec3 k2_v = accel(r2, v2, q2);
+    Vec3 k2_v = accel(dt / 2, r2, v2, q2);
     Vec3 k2_w = ang_accel(w2);
     Quat k2_q = quat_deriv(q2, w2);
 
@@ -303,7 +326,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w3 = w + k2_w * (dt / 2);
     Quat q3 = q_rocket + k2_q * (dt / 2);
     Vec3 k3_r = v3;
-    Vec3 k3_v = accel(r3, v3, q3);
+    Vec3 k3_v = accel(dt / 2, r3, v3, q3);
     Vec3 k3_w = ang_accel(w3);
     Quat k3_q = quat_deriv(q3, w3);
 
@@ -315,7 +338,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w4 = w + k3_w * dt;
     Quat q4 = q_rocket + k3_q * dt;
     Vec3 k4_r = v4;
-    Vec3 k4_v = accel(r4, v4, q4);
+    Vec3 k4_v = accel(dt, r4, v4, q4);
     Vec3 k4_w = ang_accel(w4);
     Quat k4_q = quat_deriv(q4, w4);
 
@@ -340,8 +363,15 @@ void Rocket::update_dynamics(double current_time) {
     q_rocket.y /= qnorm;
     q_rocket.z /= qnorm;
 
-    a = delta_v / dt; // for INS
-    altitude = r_norm - EARTH_RADIUS;
+    // burn off fuel
+    s.m_fuel -= mdot * dt;
+    if (s.m_fuel <= 0) { s.m_fuel = 0; s.thrust = 0; }
+
+    // calculate final accelerations
+    double m_end = m - mdot * dt;
+    a_spec = nose_from_quat(q_rocket) * (thrust_mag / m_end) + calc_drag_accel(r, v, m_end);
+    a = calc_gravity_accel(r) + a_spec;
+    altitude = r.norm() - EARTH_RADIUS;
 
     // keep rocket from falling through the earth
     double alt_eci = r.norm();
@@ -356,40 +386,32 @@ void Rocket::update_dynamics(double current_time) {
 
 }
 
-// updates the fuel mass based on the current throttle and mass flow rate
+// updates the fuel mass based on the current rocket states
 void Rocket::update_mass() {
-    // update per-stage mass
-    Stage& s = active();
-    if (s.m_fuel > 0 && s.thrust > 0) {
-        double sub = s.mass_flow_rate() * TIME_STEP;
-        if (sub > s.m_fuel) {
-            s.m_fuel = 0;
-            s.thrust = 0;
-        }
-        else s.m_fuel -= sub;
-    }
-
+    // dry structure and propellant are tracked separately so the CoM migrates as the tanks drain
     double M = 0, M_f = 0, m_cm = 0, base = 0;
     for (int i = active_idx; i < num_stages(); i++) {
         const Stage& st = props.stages[i];
-        double m = st.m_dry + st.m_fuel;
-        M += m;
+        M += st.m_dry + st.m_fuel;
         M_f += st.m_fuel;
-        m_cm += m * (base + st.tip_to_end_length - st.CoM_dist);
+        m_cm += st.m_dry * (base + st.tip_to_end_length - st.dry_CoM())
+              + st.m_fuel * (base + st.tip_to_end_length - st.fuel_CoM());
         base += st.tip_to_end_length;
     }
     m_current = M;
     m_fuel_current = M_f;
     z_cm = m_cm / M;
 
-    // also adjust moment using assumption that each stage is uniform cylinder
+    // also adjust moment using assumption that the structure and the propellant column are each uniform cylinders
     double R2 = props.radius * props.radius, I_trans = 0;
     base = 0;
     for (int i = active_idx; i < num_stages(); i++) {
         const Stage& st = props.stages[i];
-        double m = st.m_dry + st.m_fuel, L = st.tip_to_end_length;
-        double d = (base + L - st.CoM_dist) - z_cm;
-        I_trans += (1.0 / 12.0) * m * (3.0 * R2 + L * L) + m * d * d;
+        double L = st.tip_to_end_length, L_f = st.fuel_length * st.fuel_fill();
+        double d_dry = (base + L - st.dry_CoM()) - z_cm;
+        double d_fuel = (base + L - st.fuel_CoM()) - z_cm;
+        I_trans += (1.0 / 12.0) * st.m_dry * (3.0 * R2 + L * L) + st.m_dry * d_dry * d_dry;
+        I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
         base += L;
     }
     I_body = { I_trans, I_trans, 0.5 * R2 * M };

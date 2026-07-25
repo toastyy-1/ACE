@@ -115,6 +115,7 @@ class Rocket {
     Vec3 r = {0, 0, 0};             // position (m)
     Vec3 v = {0, 0, 0};             // velocity (m/s)
     Vec3 a = {0, 0, 0};             // acceleration (m/s^2)
+    Vec3 a_spec = {0, 0, 0};        // specific force (m/s^2) (INS reads this)
     Vec3 w = {0, 0, 0};             // angular velocity (rad/s)
     Quat q_rocket = {1, 0, 0, 0};   // orientation of rocket nose relative to ECI (+z is nose)
     Quat q_engine = {1, 0, 0, 0};   // orientation of engine relative to rocket body
@@ -132,8 +133,8 @@ class Rocket {
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
     double calculate_engine_thrust_component();
     double calculate_engine_rotational_component();
-    Vec3 calc_drag_accel(const Vec3& r, const Vec3& v);
+    Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass);
     Vec3 nose_direction_eci();
-    Vec3 net_body_torque() const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
+    Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
     Vec3 lat_lon_to_ecef(double latitude_deg, double longitude_deg);
 };
