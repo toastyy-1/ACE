@@ -131,8 +131,7 @@ class Rocket {
 
     // helper functions
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
-    double calculate_engine_thrust_component();
-    double calculate_engine_rotational_component();
+    Vec3 engine_thrust_body(double thrust_scale) const;
     Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass);
     Vec3 nose_direction_eci();
     Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)

@@ -94,24 +94,11 @@ void Rocket::rcs_apply_const_moment(Vec3 m) {
     applied_rcs_moment = applied_moment; // apply moment to apply_rcs_moment
 }
 
-/**
- * calculates the component of the engine's thrust that contributes to direct forward motion
- * based on its gimbal angle
- * @return forward thrust in newtons relative to body frame
- */
-double Rocket::calculate_engine_thrust_component() {
-    double qw = q_engine.w;
-    return active().thrust * (2.0 * qw * qw - 1.0);
-}
-
-/**
- * calculates the component of the engines thrust that is applied normal to the orientation
- * of the rocket, creating a moment about the center of mass
- * @return lateral thrust in newtons relative to body frame
- */
-double Rocket::calculate_engine_rotational_component() {
-    double qw = q_engine.w;
-    return active().thrust * (2.0 * qw * std::sqrt(std::max(0.0, 1.0 - qw * qw)));
+// rotate a vector by a quaternion
+static Vec3 rotate_by_quat(const Quat& q, const Vec3& u) {
+    Vec3 q_vec = {q.x, q.y, q.z};
+    Vec3 t = q_vec.cross(u);
+    return u + t * (2.0 * q.w) + q_vec.cross(t) * 2.0;
 }
 
 // nose direction rotated into the ECI frame from an attitude
@@ -131,23 +118,26 @@ Vec3 Rocket::nose_direction_eci() {
 }
 
 /**
+ * gimbaled thrust vector in the body frame
+ * @param thrust_scale isp change as pressure changes
+ */
+Vec3 Rocket::engine_thrust_body(double thrust_scale) const {
+    Vec3 nose_body = {0, 0, 1};
+    return rotate_by_quat(q_engine, nose_body) * (active().thrust * thrust_scale);
+}
+
+/**
  * net torque about the combined CopM in body frame
  * @param thrust_scale isp change as pressure changes
  */
 Vec3 Rocket::net_body_torque(double thrust_scale) const {
     Vec3 net_torque = {0, 0, 0};
 
-    // thrust direction in body frame
-    Vec3 nose_body = {0, 0, 1};
-    Vec3 q_vec = {q_engine.x, q_engine.y, q_engine.z};
-    Vec3 t = q_vec.cross(nose_body);
-    Vec3 thrust_dir_body = nose_body + t * (2.0 * q_engine.w) + q_vec.cross(t) * 2.0;
-
     // lever arm from the combined CoM to the engine along the body axis
     double s_engine = active().tip_to_end_length - active().engine_distance;
     Vec3 r_engine = {0, 0, s_engine - z_cm};
 
-    net_torque += r_engine.cross(thrust_dir_body * (active().thrust * thrust_scale));
+    net_torque += r_engine.cross(engine_thrust_body(thrust_scale));
     if (rcs_active) net_torque += applied_rcs_moment;
 
     return net_torque;
@@ -274,13 +264,13 @@ void Rocket::update_dynamics(double current_time) {
     }
 
     // quantities the FC commands
-    double thrust_mag = calculate_engine_thrust_component() * thrust_scale;
+    Vec3 thrust_body = engine_thrust_body(thrust_scale);
     Vec3 net_torque = net_body_torque(thrust_scale);
 
     // translational acceleration
     auto accel = [&](double t_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i) {
         double m_i = m - mdot * t_i;
-        return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + nose_from_quat(q_i) * (thrust_mag / m_i);
+        return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
     };
 
     // angular acceleration
@@ -369,7 +359,7 @@ void Rocket::update_dynamics(double current_time) {
 
     // calculate final accelerations
     double m_end = m - mdot * dt;
-    a_spec = nose_from_quat(q_rocket) * (thrust_mag / m_end) + calc_drag_accel(r, v, m_end);
+    a_spec = rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end);
     a = calc_gravity_accel(r) + a_spec;
     altitude = r.norm() - EARTH_RADIUS;
 
