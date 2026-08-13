@@ -5,7 +5,6 @@
 #include "renderer/raylib/raylib_backend.hpp"
 #endif
 #include "sim/sim.hpp"
-#include "fc/fc.hpp"
 #include <thread>
 
 int main() {

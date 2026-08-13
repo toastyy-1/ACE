@@ -1,5 +1,6 @@
 #include "rocket.hpp"
 #include "constants.hpp"
+#include "fc/fc_api.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -38,6 +39,93 @@ RocketState Rocket::get_state() const {
     s.init        = start_state;
     s.detonation_active = detonated;
     return s;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// flight controller boundary                                                                //
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * hands the sensors to whatever thing implements fc_api.h and applies what it asked for
+ */
+void Rocket::update_flight_controller(double current_time) {
+    if (pending_cutoff) { active().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
+
+    fc_bind::begin(this, &fc_cmd);
+
+    // hand over the rockets spec and let the controller set itself up
+    if (!fc_started) {
+        fc_stages.clear();
+        fc_stages.reserve(props.stages.size());
+        for (const Stage& s : props.stages) {
+            fc_stage fs{};
+            fs.id                      = s.id;
+            fs.m_dry                   = s.m_dry;
+            fs.m_fuel                  = s.m_fuel_full;
+            fs.isp                     = s.isp;
+            fs.isp_sea_level           = s.isp_sea_level;
+            fs.tip_to_end_length       = s.tip_to_end_length;
+            fs.CoM_dist                = s.CoM_dist;
+            fs.fuel_CoM_dist           = s.fuel_CoM_dist;
+            fs.fuel_length             = s.fuel_length;
+            fs.max_thrust              = s.max_thrust;
+            fs.engine_distance         = s.engine_distance;
+            fs.engine_gimbal_range_deg = s.engine_gimball_range;
+            fs.rcs_max_moment          = s.rcs_max_capable_moment;
+            fc_stages.push_back(fs);
+        }
+
+        fc_veh = std::make_unique<fc_vehicle>();
+        fc_veh->radius        = props.radius;
+        fc_veh->Cd            = props.Cd;
+        fc_veh->num_stages    = static_cast<int>(fc_stages.size());
+        fc_veh->stages        = fc_stages.data();
+        fc_veh->r_origin_eci  = start_state.origin_r_eci;
+        fc_veh->q_origin_eci  = start_state.origin_q_eci;
+        fc_veh->r_target_ecef = start_state.target_r_ecef;
+        fc_veh->time_step     = TIME_STEP;
+
+        fc_state.p = fc_init(fc_veh.get(), current_time);
+        fc_started = true;
+        fc_last_time = current_time;
+    }
+
+    // sample the sensors
+    fc_sensors sensors{};
+    sensors.t      = current_time;
+    sensors.dt     = current_time - fc_last_time;
+    sensors.a_spec = ins.read_acc(a_spec);
+    sensors.w      = ins.read_gyr(w);
+    sensors.g      = INS::gravity_eci(r);
+    fc_last_time   = current_time;
+
+    fc_update(fc_state.p, &sensors);
+
+    fc_bind::end();
+    apply_fc_commands();
+}
+
+/**
+ * apply a step's worth of buffered commands
+ */
+void Rocket::apply_fc_commands() {
+    // sub step cutoff wins over a plain cutoff on the same step
+    if (fc_cmd.burn_fraction_set) command_final_burn_fraction(fc_cmd.burn_fraction);
+    else if (fc_cmd.cutoff)       cutoff_engine();
+
+    if (fc_cmd.separate) advance_stage(); // clears the engine lock for the fresh stage
+    if (fc_cmd.light)    light_engine();
+    if (fc_cmd.detonate) activate_detonation();
+
+    set_engine_orientation(fc_cmd.gimbal);
+
+    if (fc_cmd.rcs_on) {
+        rcs_on();
+        rcs_apply_const_moment(fc_cmd.rcs_moment);
+    }
+    else {
+        rcs_off();
+    }
 }
 
 bool Rocket::advance_stage() {

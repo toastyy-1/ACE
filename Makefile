@@ -1,8 +1,28 @@
 CXX      := g++
+CC       := gcc
 CXXFLAGS := -std=c++20 -Wall -Wpedantic -Isrc -Ithird_party -pthread -O3 -flto -funroll-loops -D_USE_MATH_DEFINES
+CFLAGS   := -std=c11 -Wall -Wpedantic -Isrc -O3
+
+# --- flight controller (swap this out to test your own) ---
+# whatever you point FC_SRC at must implement fc_init / fc_update / fc_free from
+# src/fc/fc_api.h. .c and .cpp both work, and it can be more than one file:
+#
+#     make FC_SRC=src/fc/example_fc.c
+#     make FC_SRC="src/fc/my_nav.cpp src/fc/my_guidance.cpp"
+FC_SRC := src/fc/fc.cpp src/fc/stages.cpp
+
+FC_C_SRCS   := $(filter %.c,$(FC_SRC))
+FC_CXX_SRCS := $(filter-out %.c,$(FC_SRC))
+FC_C_OBJS   := $(addprefix build/fc/,$(notdir $(FC_C_SRCS:.c=.o)))
 
 COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp \
-               src/sim/sim.cpp src/sim/rocket.cpp src/sim/config.cpp src/fc/fc.cpp src/fc/stages.cpp
+               src/sim/sim.cpp src/sim/rocket.cpp src/sim/config.cpp src/fc/fc_api.cpp \
+               $(FC_CXX_SRCS)
+
+# a plain c controller gets compiled on its own and linked in
+build/fc/%.o: src/fc/%.c src/fc/fc_api.h
+	@mkdir -p build/fc
+	$(CC) $(CFLAGS) -c $< -o $@
 
 RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models.cpp
 RAYLIB_ARCH := -march=native
@@ -56,8 +76,8 @@ endif
 # ---------------------------------------------------------------------------
 # raylib (default)
 # ---------------------------------------------------------------------------
-$(TARGET): $(COMMON_SRCS) $(RAYLIB_SRCS)
-	$(CXX) $(CXXFLAGS) $(RAYLIB_ARCH) $(COMMON_SRCS) $(RAYLIB_SRCS) -o $@ $(LDLIBS)
+$(TARGET): $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS)
+	$(CXX) $(CXXFLAGS) $(RAYLIB_ARCH) $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS) -o $@ $(LDLIBS)
 
 run: $(TARGET)
 	./$(TARGET)
@@ -70,9 +90,9 @@ SHADER_BINS := $(SHADER_SRCS:.sc=.bin)
 
 bgfx: $(BGFX_TARGET)
 
-$(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) shaders-bgfx
+$(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) shaders-bgfx
 	$(CXX) $(CXXFLAGS) $(BGFX_ARCH) $(BGFX_DEFS) $(BGFX_INCS) \
-	    $(COMMON_SRCS) $(BGFX_SRCS) -o $@ $(BGFX_LIBS) $(BGFX_SYSLIBS)
+	    $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) -o $@ $(BGFX_LIBS) $(BGFX_SYSLIBS)
 
 run-bgfx: bgfx
 	./$(BGFX_TARGET)
@@ -98,5 +118,6 @@ bgfx-deps: $(BGFX_TEXTURES_READY)
 
 clean:
 	$(RM) $(TARGET) $(BGFX_TARGET)
+	$(RM) build/fc/*.o
 
 .PHONY: run run-bgfx bgfx shaders-bgfx bgfx-deps clean

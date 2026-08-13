@@ -33,9 +33,7 @@ namespace sim {
         TIME_STEP = config.time_step;
 
         for (const RocketEntry& rocket : config.rockets) {
-            Rocket new_rocket{rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
-                               rocket.props};
-            rocket_list.push_back(new_rocket);
+            rocket_list.emplace_back(rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon, rocket.props);
         }
 
         // configure the rocket for starting settings

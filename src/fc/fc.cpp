@@ -2,48 +2,45 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
-#include <random>
 #include <vector>
-#include <thread>
-#include <chrono>
 #include "fc.hpp"
-#include "imu.hpp"
-#include "types.hpp"
-#include "sim/rocket.hpp"
 
-Vec3 INS::read_INS_acc(const Rocket& r) {
-    return add_noise(r.a_spec, acc_noise);
+///////////////////////////////////////////////////////////////////////////////////////////////
+// entry points                                                                 //
+///////////////////////////////////////////////////////////////////////////////////////////////
+
+void* fc_init(const fc_vehicle* vehicle, double t) {
+    return new FlightController(*vehicle, t);
 }
 
-Vec3 INS::read_INS_gyr(const Rocket& r) {
-    return add_noise(r.w, gyr_noise);
+void fc_update(void* state, const fc_sensors* sensors) {
+    static_cast<FlightController*>(state)->flight_controller_process(*sensors);
 }
 
-Vec3 INS::read_INS_grav(const Rocket& r) {
-    return gravity_eci(r.r);
+void fc_free(void* state) {
+    delete static_cast<FlightController*>(state);
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // startup                                                                                   //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-FlightController::FlightController(Rocket& r, double current_time) : props(r.props) {
+FlightController::FlightController(const fc_vehicle& vehicle, double current_time) : veh(vehicle) {
     cs.stage = STANDBY;
 }
 
-FCInitState FlightController::create_target_trajectory(double lat_target, double long_target, Rocket& r) {
+FCInitState FlightController::create_target_trajectory(double lat_target, double long_target) {
     FCInitState out;
 
     // target's terrain height
-    double target_radius = renderer::EarthBumpMap::Get().SurfaceRadius2D(lat_target, long_target);
+    double target_radius = veh.r_target_ecef.norm();
 
     // convert to radians
     lat_target = lat_target * M_PI / 180.0;
     long_target = long_target * M_PI / 180.0;
 
     // derive lat and longitude from starting position of rocket on planet
-    Vec3 p = r.r;
+    Vec3 p = veh.r_origin_eci;
     double radius = p.norm();
     double lat_origin  = asin(p.z / radius);
     double long_origin = atan2(p.y, p.x);
@@ -86,9 +83,9 @@ FCInitState FlightController::create_target_trajectory(double lat_target, double
     out.launch_asimuth = launch_azimuth;
 
     // burn time estimate for each stage
-    out.stage_burn_time.reserve(props.stages.size());
-    for (const Stage& s : props.stages) {
-        out.stage_burn_time.push_back(s.m_fuel / s.max_mass_flow_rate());
+    out.stage_burn_time.reserve(num_stages());
+    for (int i = 0; i < num_stages(); i++) {
+        out.stage_burn_time.push_back(fc_stage_burn_time(&stage(i)));
     }
 
     // return all our calculated stuff yay!
@@ -96,14 +93,14 @@ FCInitState FlightController::create_target_trajectory(double lat_target, double
 }
 
 // init
-void FlightController::init(Rocket& r, double current_time) {
+void FlightController::init(double current_time) {
     cs = {};
     cs.stage = ARMED;
     cs.time = current_time;
 
-    double tgt_lat = asin(r.start_state.target_r_ecef.z / r.start_state.target_r_ecef.norm()) * RAD_TO_DEG;
-    double tgt_long = atan2(r.start_state.target_r_ecef.y, r.start_state.target_r_ecef.x) * RAD_TO_DEG;
-    cs.is = create_target_trajectory(tgt_lat, tgt_long, r);
+    double tgt_lat = asin(veh.r_target_ecef.z / veh.r_target_ecef.norm()) * RAD_TO_DEG;
+    double tgt_long = atan2(veh.r_target_ecef.y, veh.r_target_ecef.x) * RAD_TO_DEG;
+    cs.is = create_target_trajectory(tgt_lat, tgt_long);
 
     cs.r = cs.is.r_origin; // set initial r to starting r
     cs.v = surface_velocity_eci(cs.r); // pad rotates with earth
@@ -117,13 +114,13 @@ void FlightController::init(Rocket& r, double current_time) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // aquires new data from the sim
-void FlightController::pull_new_data(const Rocket& r, double current_time) {
-    cs.g = ins.read_INS_grav(r);
-    cs.a_inertial = ins.read_INS_acc(r);
+void FlightController::pull_new_data(const fc_sensors& sensors) {
+    cs.g = sensors.g;
+    cs.a_inertial = sensors.a_spec;
     cs.a = cs.a_inertial + cs.g;
-    cs.w = ins.read_INS_gyr(r);
-    cs.dt = current_time - cs.time;
-    cs.time = current_time; // this must happen after cs.dt or else cs.dt will be 0 :)
+    cs.w = sensors.w;
+    cs.dt = sensors.dt;
+    cs.time = sensors.t;
 }
 
 // estimate state of the rocket in flight at the current moment
@@ -190,7 +187,7 @@ Quat FlightController::set_new_engine_gimbal_quat() {
     // map torque to gimball command angles
 
     // active stage index for the current mission stage
-    const Stage& s = props.stages[cs.stage];
+    const fc_stage& s = stage(cs.stage);
 
     // CoM of the rocket
     double z_cm = cs.z_cm;
@@ -238,15 +235,15 @@ Vec3 FlightController::calculate_rcs_moments_to_achieve_target_orientation() {
 // integrates things to give a decent estimate of what the current moment of inertia of the rocket is
 void FlightController::calculate_I() {
     Vec3 I = {0};
-    double R2 = props.radius * props.radius;
+    double R2 = veh.radius * veh.radius;
 
     const int first_stage = cs.stage < STAGE_1 ? STAGE_1 : cs.stage;
-    const int stage_count = static_cast<int>(props.stages.size());
+    const int stage_count = num_stages();
 
     // mass-weighted center of mass of the remaining stages
     double M_total = 0.0, m_CoM = 0.0, base = 0.0;
     for (int i = first_stage; i < stage_count; i++) {
-        const Stage& st = props.stages[i];
+        const fc_stage& st = stage(i);
         double m = st.m_dry + st.m_fuel;
         M_total += m;
         m_CoM += m * (base + st.tip_to_end_length - st.CoM_dist);
@@ -257,7 +254,7 @@ void FlightController::calculate_I() {
 
     base = 0.0;
     for (int i = first_stage; i < stage_count; i++) {
-        const Stage& s = props.stages[i]; // selected stage
+        const fc_stage& s = stage(i); // selected stage
         double M = s.m_dry + s.m_fuel;
         double L = s.tip_to_end_length;
 
@@ -279,21 +276,21 @@ void FlightController::calculate_I() {
 // flight controller loop                                                                    //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-// runs on its own thread alongside the sim
-void FlightController::flight_controller_process(Rocket& r, double current_time) {
+// called once per sim time step
+void FlightController::flight_controller_process(const fc_sensors& sensors) {
 
     ////////////////////////////
     // control inside         //
     ////////////////////////////
 
-    // NOTE!! I have chosen to pass the rocket struct into as few functions as possible unless absolutely necessary.
-    // this means that anything staging function inside the switch statement shouldnt execute functions on the rocket
-    // directly so the behavior isnt hidden and we dont accidentally do shit we dont want to
+    // NOTE!! the staging functions inside the switch statement only ever set flags. the fc
+    // commands all get issued in one block at the bottom so the behavior isnt hidden and we
+    // dont accidentally do shit we dont want to
 
-    if (cs.stage == STANDBY) init(r, current_time);
+    if (cs.stage == STANDBY) init(sensors.t);
 
     // get latest data from the INS and advance the clock
-    pull_new_data(r, current_time);
+    pull_new_data(sensors);
 
     // estimate state based on pulled data
     estimate_state();
@@ -333,39 +330,39 @@ void FlightController::flight_controller_process(Rocket& r, double current_time)
     if (cs.final_burn_flag) {
         cs.final_burn_flag = false;
         // fractional burn (burn that is sub step to time step)
-        r.command_final_burn_fraction(cs.final_burn_fraction);
+        fc_burn_fraction(cs.final_burn_fraction);
     }
     else if (cs.cutoff_engine_flag) {
         cs.cutoff_engine_flag = false;
-        r.cutoff_engine();
+        fc_cutoff_engine();
     }
 
     // check if the stage was supposed to be separated (clears the engine lock for the fresh stage)
     if (cs.separate_stage_flag) {
         cs.separate_stage_flag = false;
-        r.advance_stage();
+        fc_separate_stage();
     }
 
     // check if engine was supposed to be lit
     if (cs.light_engine_flag) {
         cs.light_engine_flag = false;
-        r.light_engine();
+        fc_light_engine();
     }
 
     // check if rocket was supposed to be detonated
     if (cs.detonate_flag) {
-        r.activate_detonation();
+        fc_detonate();
     }
 
     // send targeting commands to the engine gimbal system based on target attitude in cs
-    r.set_engine_orientation(set_new_engine_gimbal_quat());
+    fc_set_gimbal(set_new_engine_gimbal_quat());
 
     // send orientation change commands to the rcs thruster system if it is active
     if (cs.rcs_activated_flag) {
-        r.rcs_on();
-        r.rcs_apply_const_moment(calculate_rcs_moments_to_achieve_target_orientation());
+        fc_rcs_enable(1);
+        fc_rcs_set_moment(calculate_rcs_moments_to_achieve_target_orientation());
     }
     else {
-        r.rcs_off();
+        fc_rcs_enable(0);
     }
 }

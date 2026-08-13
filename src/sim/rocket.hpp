@@ -2,9 +2,11 @@
 #include "types.hpp"
 #include "constants.hpp"
 #include "sim/properties.hpp"
-#include "fc/fc.hpp"
+#include "sim/ins.hpp"
+#include "fc/fc_bind.hpp"
 #include <array>
-#include <optional>
+#include <memory>
+#include <vector>
 #include "renderer/bgfx/earth_bump_map.hpp"
 
 struct RocketStartState {
@@ -28,9 +30,6 @@ struct RocketState {
 };
 
 class Rocket {
-    friend class INS;
-    friend class FlightController;
-
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // public                                                                                    //
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -44,9 +43,16 @@ class Rocket {
            const RocketProps& props);
     ~Rocket();
 
+    // rocket owns the flight controller state
+    Rocket(Rocket&&) = default;
+    Rocket& operator=(Rocket&&) = default;
+    Rocket(const Rocket&) = delete;
+    Rocket& operator=(const Rocket&) = delete;
+
     // getters:
     RocketState get_state() const;
     bool is_detonated() { return detonated; }
+    int active_stage() const { return active_idx; } // index the fc's stage array with this
 
     // setters (should only be used on setup)
     void set_pos(const Vec3& pos) { r = pos; } // set absolute position
@@ -56,11 +62,7 @@ class Rocket {
     // simulation things
     void update_dynamics(double current_time);
     void update_mass();
-    void update_flight_controller(double current_time) {
-        if (pending_cutoff) { active().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff (direction from fc)
-        if (!fc) fc.emplace(*this, current_time); // loads rocket config into the FC on first run
-        fc->flight_controller_process(*this, current_time);
-    }
+    void update_flight_controller(double current_time);
 
     // used by flight controller
     void light_engine(); // should be used once per stage
@@ -81,7 +83,18 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // rocket static configuration                                                               //
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    std::optional<FlightController> fc;
+    // the dropped in flight controller
+    INS ins;
+    fc_bind::State fc_state; // state fc_init
+    fc_bind::Commands fc_cmd; // what it asked for on the current step
+
+    std::unique_ptr<fc_vehicle> fc_veh;
+    std::vector<fc_stage> fc_stages;
+
+    bool fc_started = false;
+    double fc_last_time = 0.0;
+
+    void apply_fc_commands();
 
     // topography
     renderer::EarthBumpMap* topo = &renderer::EarthBumpMap::Get();

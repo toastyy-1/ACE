@@ -1,11 +1,7 @@
 #pragma once
 
-#include "types.hpp"
-#include "imu.hpp"
-#include "sim/properties.hpp"
+#include "fc/fc_api.h"
 #include <vector>
-
-class Rocket;
 
 // the intitial states that the rocket starts at
 struct FCInitState {
@@ -77,27 +73,28 @@ struct ControlStates {
 class FlightController {
     public:
     // load a fully set up rocket config/geometry into the FC and set up initial state
-    FlightController(Rocket& r, double current_time);
+    FlightController(const fc_vehicle& vehicle, double current_time);
 
     // perform flight controller operations (should be called every time we want to update the FC)
-    void flight_controller_process(Rocket& r, double current_time);
+    void flight_controller_process(const fc_sensors& sensors);
 
     private:
     static constexpr double HOLD_DURATION = 10.0;
 
-    // rocket geometry copied from the rocket part of sim once at startup
-    RocketProps props;
+    // rocket geometry handed over by the sim once at startup
+    fc_vehicle veh;
 
-    INS ins;
     ControlStates cs;
     double countdown_start = 0;
 
     // helpers
+    const fc_stage& stage(int i) const { return veh.stages[i]; }
+    int num_stages() const { return veh.num_stages; }
     Vec3 target_eci_at_time_of_arrival(double t_arrival) const { return ecef_to_eci(cs.is.r_target_ecef, t_arrival); }
-    void init(Rocket& r, double current_time);
-    FCInitState create_target_trajectory(double lat_target, double long_target, Rocket& r);
+    void init(double current_time);
+    FCInitState create_target_trajectory(double lat_target, double long_target);
     void estimate_state();
-    void pull_new_data(const Rocket& r, double current_time);
+    void pull_new_data(const fc_sensors& sensors);
     Quat quat_from_vec(Vec3 u);
     Quat set_new_engine_gimbal_quat();
     Vec3 calculate_rcs_moments_to_achieve_target_orientation(); // longest function name ever lets go
