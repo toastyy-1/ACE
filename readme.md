@@ -1,4 +1,4 @@
-# Sub Orbital Rocket Targeting Program and Epic 6DoF
+# Ballistic Rocketry 6
 
 A 6DoF ballistic trajectory sim for testing flight controllers.
 
