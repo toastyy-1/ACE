@@ -31,33 +31,35 @@ git submodule update --init --recursive   # bgfx.cmake, only needed for `make bg
 
 ## 3. Build
 
-**raylib:**
+**raylib (legacy):**
 
 ```sh
 make run
 ```
 
-**bgfx:**
+**bgfx (current):**
+
+Note: it is suggested that you build with bgfx as it's graphical pipeline is actively developed compared to raylib which is outdated and likely unstable or doesnt expose newer features.
 
 ```sh
 make bgfx-deps
 make bgfx
+OR 
 make run-bgfx
 ```
 
-`make bgfx-deps` only has to be run once.
+`make bgfx-deps` only has to be run once on project config.
 
 Camera: `WASD` + `QE` to move, mouse to look, `shift` to boost, `F` to recenter on the vehicle,
 `TAB` to cycle tracked rocket, `1`-`9` toggle HUD overlays.
 
-On exit the sim writes `landing_errors.csv`.
+On exit the sim writes `landing_errors.csv`;
 
 ---
 
-## 4. Configuring the scenario (`config/sim.yaml`)
+## 4. Configuring the environment (`config/sim.yaml`)
 
-One YAML file drives the sim. Anything you leave out falls back to the default in the
-table.
+This YAML file defines all elements of the tim that you wish to control. If you decide not to add a field it will resolve to default.
 
 ### Top level
 
@@ -66,6 +68,8 @@ table.
 | `time_step` | `0.01` | integration step in seconds, and therefore the `fc_update` period |
 | `step_delay` | `0.001` | real life sleep between steps, purely to slow the sim down for viewing |
 | `rockets` | — | list, one entry per vehicle. All of them fly simultaneously and independently using the designated FC |
+
+Note that while there might be multiple vehicles, the FC is the same for all of them.
 
 ### Per rocket
 
@@ -79,22 +83,22 @@ table.
 
 ### Per stage
 
-Stage geometry is measured **from the leading edge (tip) of that stage, pointing aft**.
+Stage geometry is measured **from the leading edge (tip) of that stage, pointing aft**. This means that, for example, length is the top tip of the stage to the back.
 
 | key | units | meaning |
 | --- | --- | --- |
-| `dry_mass` | kg | fuel-less stage mass |
-| `fuel_mass` | kg | propellant at ignition |
+| `dry_mass` | kg | stage mass with no fuel |
+| `fuel_mass` | kg | propellant mass before ignition |
 | `isp` | s | vacuum specific impulse |
 | `isp_sea_level` | s | sea level Isp |
 | `length` | m | tip to tail |
 | `com_distance` | m | CoM from the tip with full tanks |
-| `fuel_com_distance` | m | propellant column CoM from the tip, full (defaults to `com_distance`) |
-| `fuel_length` | m | propellant column length, full |
-| `max_thrust` | N | rated thrust |
-| `engine_distance` | m | gimbal point from the tip (usually length) |
+| `fuel_com_distance` | m | propellant CoM from the tip, full (defaults to `com_distance`) |
+| `fuel_length` | m | propellant length, full (should not be greater than `length`) |
+| `max_thrust` | N | rated thrust (currently constant, thrust curve CID) |
+| `engine_distance` | m | gimbal point from the tip (usually `length`) |
 | `gimbal_range_deg` | deg | max nozzle deflection off the body axis |
-| `rcs_max_moment` | N·m | 3 element `[x, y, z]` torque authority. Omit for no RCS (experimental feature) |
+| `rcs_max_moment` | N·m | 3 element `[x, y, z]` torque authority. Omit for no RCS (experimental feature, kind of a chud temporary solution) |
 
 The number of stage entries defines the number of stages. Every stage you define is reported to the FC in `fc_vehicle.stages`.
 
@@ -124,9 +128,6 @@ rockets:
         # ...
 ```
 
-Each rocket gets its own `fc_init` state, so the same controller code flies all of them without
-sharing anything.
-
 ---
 
 ## 5. Plugging in your own flight controller
@@ -149,9 +150,7 @@ Rules you should probably follow:
 
 - Your code must define exactly three things: `fc_init`, `fc_update`, `fc_free`.
 - C++ files are compiled into the main build. **C files are compiled separately**, so a `.c` controller has to live in `src/fc/` for `make` to find a rule for it. `.cpp` files can live anywhere.
-- `fc_api.h` is the only header you need. It works from both C and C++ and
-  already carries the vector/quaternion helpers, gravity model, ECI/ECEF conversions, and stage
-  math (`fc_stage_burn_time`, `fc_stage_delta_v`, …). ((please read the API file completely))
+- `fc_api.h` is the only header you need. It works from both C and C++ and already carries the vector/quaternion helpers, gravity model, ECI/ECEF conversions, and stage math (`fc_stage_burn_time`, `fc_stage_delta_v`, …). ((please read the API file completely)). You are welcome to interface your own math for internal flight controller operations, but when interfacing with the API it easier to use the API's helpers.
 
 ### The three entry points
 
@@ -161,10 +160,8 @@ void  fc_update(void* state, const fc_sensors* s);   // once per step
 void  fc_free(void* state);                          // on vehicle destruction
 ```
 
-`fc_init` gets the full vehicle spec (stages, launch point/attitude in ECI, target in ECEF,
-`time_step`) and returns whatever pointer you want handed back each step.
 
-### What you can read
+### What the Sim's API exposes to the flight controller
 
 `fc_sensors` provides mission time, `dt`, body frame accelerometer and gyro (both
 carrying INS noise from ins.hpp), plus `g`, which is the sim's own gravity at
@@ -189,9 +186,9 @@ The sim applies them after `fc_update` returns, in a fixed order (burn/cutoff, s
 
 ### Frames
 
-- Positions and velocities the sim hands you are **ECI**; the target is **ECEF**. Convert with `fc_ecef_to_eci(p, t)` / `fc_eci_to_ecef(p, t)` using mission time.
+- Positions and velocities the sim provides are **ECI**; the target is **ECEF**. One can convert it with `fc_ecef_to_eci(p, t)` / `fc_eci_to_ecef(p, t)` using mission time.
 - Sensors are **body frame**. Body `+z` is the nose; `q_origin_eci` is the launch attitude.
-- Gimbal quaternion is the nozzle relative to the body, identity q = straight aft.
+- Gimbal quaternion is the nozzle relative to the body, identity q = straight aft (identity is straight down, no attitude applied).
 
 ### Example
 
