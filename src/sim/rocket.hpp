@@ -150,4 +150,7 @@ class Rocket {
     Vec3 nose_direction_eci();
     Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
     Vec3 lat_lon_to_ecef(double latitude_deg, double longitude_deg);
+    double rocket_length() const; // nose to aft end of the remaining stack (m)
+    bool is_rocket_on_ground(double com_dist_from_gnd); // snaps the rocket onto the surface if it is touching the ground
+    void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 };

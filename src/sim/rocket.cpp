@@ -339,9 +339,111 @@ Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, c
     return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
 }
 
+// calculates time derivative of input quaternion given current orientation
 static Quat quat_deriv(const Quat& q, const Vec3& w) {
     Quat omega = {0.0, w.x, w.y, w.z};
     return (q * omega) * 0.5;
+}
+
+// length of the remaining stack from the nose to the aft end of the active stage
+double Rocket::rocket_length() const {
+    double length = 0;
+    for (int i = active_idx; i < num_stages(); i++) {
+        length += props.stages[i].tip_to_end_length;
+    }
+    return length;
+}
+
+bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
+    double r_norm = r.mag();
+
+    // find rocket length
+    double rocket_length = this->rocket_length();
+
+    // if its greater than the length of  the rocket, its not worth checking at all lol
+    if (com_dist_from_gnd > rocket_length) {
+        return false;
+    }
+    else {
+        // find how high the CoM is from the ground based on the angle between the rockets position in ecef and its orientation
+        double cos_angle_to_gnd = r.unit().dot(nose_from_quat(q_rocket));
+
+        // whichever end sits lower touches the ground, and the body radius lifts the CoM when it isnt vertical
+        double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
+        double rocket_height_component = std::max
+                (
+                z_cm * cos_angle_to_gnd, // OR
+                -(rocket_length - z_cm) * cos_angle_to_gnd
+                )
+
+                + props.radius * sin_angle_to_gnd;
+        
+        // check if any component along the rocket is touching the ground, 
+        if (com_dist_from_gnd < rocket_height_component) {
+            Vec3 r_hat = r.unit();
+            r = r_hat * (r_norm - com_dist_from_gnd + rocket_height_component);
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+}
+
+// change in contact point velocity from an impulse J applied there (body frame)
+static Vec3 contact_vel_change(const Vec3& r_c, const Vec3& J, const Vec3& I, double m) {
+    Vec3 ang = r_c.cross(J);
+    Vec3 dw = {ang.x / I.x, ang.y / I.y, ang.z / I.z};
+    return J / m + dw.cross(r_c);
+}
+
+void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
+    // the ground supplies whatever force keeps the rocket riding along with the surface
+    Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
+    a = w_earth.cross(w_earth.cross(r));
+
+    // find vector components in the body frame
+    Quat q_inv = q_rocket.conjugate();
+    Vec3 up_body = rotate_by_quat(q_inv, r.unit());
+    double cos_angle_to_gnd = up_body.z; // body +z is the nose
+
+    // contact point is the lowest end of the rocket
+    Vec3 r_contact_from_cm = {0, 0, cos_angle_to_gnd >= 0.0 ? -z_cm : rocket_length() - z_cm};
+    double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
+    if (sin_angle_to_gnd > 0) {
+        r_contact_from_cm.x = -up_body.x * props.radius / sin_angle_to_gnd;
+        r_contact_from_cm.y = -up_body.y * props.radius / sin_angle_to_gnd;
+    }
+
+    // velocity of the contact point relative to the ground
+    Vec3 w_earth_body = rotate_by_quat(q_inv, w_earth);
+    Vec3 v_contact = rotate_by_quat(q_inv, v - surface_velocity_eci(r)) + (w - w_earth_body).cross(r_contact_from_cm);
+
+    // ground pushes when the contact point moves into it
+    double v_into_gnd = v_contact.dot(up_body);
+    if (v_into_gnd < 0) {
+        Vec3 impulse_body = up_body * (-v_into_gnd / contact_vel_change(r_contact_from_cm, up_body, I, m_end).dot(up_body));
+
+        // friction stops the contact point sliding
+        Vec3 v_slip = v_contact + contact_vel_change(r_contact_from_cm, impulse_body, I, m_end);
+        v_slip -= up_body * v_slip.dot(up_body);
+        if (v_slip.mag() > 1e-9) {
+            Vec3 slip_dir = v_slip.unit();
+            double friction = std::min(v_slip.mag() / contact_vel_change(r_contact_from_cm, slip_dir, I, m_end).dot(slip_dir),
+                                       GROUND_FRICTION_COEFF * impulse_body.mag());
+            impulse_body -= slip_dir * friction;
+        }
+
+        // the impulse at the contact point changes both the CoM velocity and the spin
+        v += rotate_by_quat(q_rocket, impulse_body / m_end);
+        Vec3 ang_impulse = r_contact_from_cm.cross(impulse_body);
+        w.x += ang_impulse.x / I.x;
+        w.y += ang_impulse.y / I.y;
+        w.z += ang_impulse.z / I.z;
+    }
+
+    // take away rotational energy modified by some energy loss factor that I lwk made up
+    w = w_earth_body + (w - w_earth_body) * exp(-dt / 0.9);
 }
 
 void Rocket::update_dynamics(double current_time) {
@@ -453,76 +555,27 @@ void Rocket::update_dynamics(double current_time) {
     s.m_fuel -= mdot * dt;
     if (s.m_fuel <= 0) { s.m_fuel = 0; s.thrust = 0; }
 
-    // keep rocket from falling through the earth
-    // this uses z_cm instead of r because it ensures the rocket doesnt go below the surface!
-    bool on_ground = false;
-    Vec3 v_pre_contact = v;
+    // final time at new position
     double t_end = current_time + dt;
-    double r_norm = r.mag();
 
-    // find how high the CoM is from the ground based on the angle between the rockets position in ecef and its orientation
-    Vec3 rocket_nose_dir_ecef = eci_to_ecef(nose_from_quat(q_rocket), t_end);
-    Vec3 r_ecef = eci_to_ecef(r, t_end);
-    double cos_angle_to_gnd = r_ecef.dot(rocket_nose_dir_ecef) / (rocket_nose_dir_ecef.mag() * r_ecef.mag());
+    // find altitude above the earth
+    double surface_r = topo->SurfaceRadius3D(eci_to_ecef(r, t_end));
+    altitude = r.mag() - surface_r;
 
-    // whichever end sits lower touches the ground, and the body radius lifts the CoM when it isnt vertical
-    double rocket_length = 0;
-    for (int i = active_idx; i < num_stages(); i++) {
-        rocket_length += props.stages[i].tip_to_end_length;
-    }
-    double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
-    double rocket_height_component = std::max
-                (
-                z_cm * cos_angle_to_gnd, // OR
-                -(rocket_length - z_cm) * cos_angle_to_gnd
-                )
+    // determine if rocket is on the ground, then calculate its altitude based on that
+    bool on_ground = is_rocket_on_ground(altitude);
+    altitude = r.mag() - surface_r; // the ground contact may have moved the rocket
 
-                + props.radius * sin_angle_to_gnd;
-
-    if (r_norm - rocket_height_component <= topo->kMaxElevation + EARTH_RADIUS) {
-        double surface_r = topo->SurfaceRadius3D(eci_to_ecef(r, t_end));
-        if (r_norm - rocket_height_component < surface_r) {
-            Vec3 r_hat = r.unit();
-            r = r_hat * (surface_r + rocket_height_component);
-            v_pre_contact = v;
-            v = surface_velocity_eci(r) + r_hat * std::max(v.dot(r_hat), 0.0); // if touching ground move iwth earth spin
-            on_ground = true;
-        }
-    }
-    altitude = r.mag() - EARTH_RADIUS;
-
-    // calculate final accelerations
+    // gravity measurement at new position
     Vec3 g_end = calc_gravity_accel(r);
+
+    // update acceleration of the body as consistent with RK4
     if (on_ground) {
-        // the ground supplies whatever force keeps the rocket riding along with the surface
-        Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
-        a = w_earth.cross(w_earth.cross(r));
-
-        Vec3 nose_eci = nose_from_quat(q_rocket);
-        Vec3 r_contact_from_cm;
-        if (cos_angle_to_gnd >= 0.0) {
-            r_contact_from_cm = nose_eci * -z_cm;
-        }
-        else {
-            r_contact_from_cm = nose_eci * (rocket_length - z_cm);
-        }
-        Vec3 down_perp = nose_eci * cos_angle_to_gnd - r.unit();
-        if (down_perp.mag() > 1e-9) {
-            r_contact_from_cm += down_perp * (props.radius / down_perp.mag());
-        }
-
-        // the impulse the ground applied at the contact point this step spins the rocket about its CoM
-        Vec3 impulse_from_gnd = (v - v_pre_contact) * m_end;
-        Vec3 ang_impulse_body = rotate_by_quat(q_rocket.conjugate(), r_contact_from_cm.cross(impulse_from_gnd));
-        w.x += ang_impulse_body.x / I.x;
-        w.y += ang_impulse_body.y / I.y;
-        w.z += ang_impulse_body.z / I.z;
-
-        // take away rotational energy
-        Vec3 w_earth_body = rotate_by_quat(q_rocket.conjugate(), w_earth);
-        w = w_earth_body + (w - w_earth_body) * exp(-dt / 0.9);
+        // apply dynamics to body but special because its touching the ground
+        apply_ground_dynamics(I, m_end, dt);
     }
     else {
+        // calculate RK4 total acceleration vector
         a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end);
     }
 
