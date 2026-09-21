@@ -5,14 +5,15 @@
 #include "../render_backend.hpp"
 #include "models.hpp"
 #include "earth_bump_map.hpp"
+#include "terrain.hpp"
 
 struct GLFWwindow;
 
 namespace renderer {
 
 // bgfx backend, forced to the OpenGL renderer. Owns a GLFW window (bgfx draws
-// to its native handle), the generic + Earth shader programs, and the richer
-// 3-map day/night Earth. Geometry/transforms arrive in view space from the
+// to its native handle), the shader programs, the global Earth maps, and the
+// scene objects built on them (RocketModel, Terrain). Geometry/transforms arrive in view space from the
 // renderer (it owns the precision-critical ECI->view shift).
 class BgfxBackend : public RenderBackend {
 public:
@@ -70,9 +71,7 @@ private:
 
     bgfx::VertexLayout  layout_;
     bgfx::ProgramHandle generic_ = BGFX_INVALID_HANDLE;
-    bgfx::ProgramHandle earthProg_ = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle cloudProg_ = BGFX_INVALID_HANDLE;
-    bgfx::ProgramHandle patchProg_ = BGFX_INVALID_HANDLE;    // camera-following terrain LOD patch
     bgfx::ProgramHandle atmosProg_ = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle flareProg_ = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle rocketProg_ = BGFX_INVALID_HANDLE;   // PBR + grime (lit DrawModel)
@@ -84,19 +83,15 @@ private:
     RVec3 heatDir_    { 0, 0, 1 };   // cached from DrawRocket: travel dir for the heating glow
     float heatAmt_    = 0.0f;        // cached aerodynamic-heating intensity
     RVec3 earthCenterView_ { 0, 0, 0 };   // cached Earth centre, for rocket reflections
-    bgfx::UniformHandle s_color_ = BGFX_INVALID_HANDLE, s_bump_ = BGFX_INVALID_HANDLE,
-                        s_night_ = BGFX_INVALID_HANDLE, s_rough_ = BGFX_INVALID_HANDLE,
+    bgfx::UniformHandle s_color_ = BGFX_INVALID_HANDLE, s_night_ = BGFX_INVALID_HANDLE,
                         s_emiss_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_sunDir_ = BGFX_INVALID_HANDLE, u_earthCenter_ = BGFX_INVALID_HANDLE,
-                        u_camPos_ = BGFX_INVALID_HANDLE, u_dispScale_ = BGFX_INVALID_HANDLE,
+                        u_camPos_ = BGFX_INVALID_HANDLE,
                         u_heat_ = BGFX_INVALID_HANDLE, u_earth_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle s_cloud_ = BGFX_INVALID_HANDLE, u_cloudAlpha_ = BGFX_INVALID_HANDLE,
                         u_cloudDisp_ = BGFX_INVALID_HANDLE, u_atmos_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle u_rayFwd_ = BGFX_INVALID_HANDLE, u_rayRight_ = BGFX_INVALID_HANDLE,
                         u_rayUp_ = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle u_patchC_ = BGFX_INVALID_HANDLE, u_patchE_ = BGFX_INVALID_HANDLE,
-                        u_patchN_ = BGFX_INVALID_HANDLE, u_patchCam_ = BGFX_INVALID_HANDLE,
-                        u_patchTrue_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle white_ = BGFX_INVALID_HANDLE;
 
     std::vector<GpuMesh>             meshes_;    // handle = index + 1
@@ -104,9 +99,8 @@ private:
 
     // Backend-owned scene objects.
     RocketModel         rocket_;
-    MeshHandle          earthMesh_ = 0;
+    Terrain             terrain_;        // the Earth's surface (quadtree LOD)
     MeshHandle          cloudMesh_ = 0;
-    MeshHandle          patchMesh_ = 0;
     bgfx::TextureHandle earthColor_ = BGFX_INVALID_HANDLE,
                         earthNight_ = BGFX_INVALID_HANDLE,
                         earthCloud_ = BGFX_INVALID_HANDLE,

@@ -98,7 +98,7 @@ namespace sim {
         for (size_t i = 0; i < rocket_list.size(); i++) {
             RocketState s = rocket_list[i].get_state();
             Vec3 pos_ecef = eci_to_ecef(s.r, t);
-            double error = (pos_ecef - s.init.target_r_ecef).norm();
+            double error = (pos_ecef - s.init.target_r_ecef).mag();
             file << i << "," << pos_ecef.x << "," << pos_ecef.y << "," << pos_ecef.z << "," << error << "\n";
         }
     }

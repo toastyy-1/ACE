@@ -17,7 +17,7 @@ class INS {
 
     // gravitational acceleration in ECI
     static Vec3 gravity_eci(Vec3 r) {
-        double rn = r.norm();
+        double rn = r.mag();
         if (rn < 1.0) return {0.0, 0.0, 0.0};
 
         double rn_sq = rn * rn;

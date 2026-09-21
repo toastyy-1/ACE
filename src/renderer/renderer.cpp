@@ -154,7 +154,7 @@ void Renderer::UpdateTrails() {
     for (size_t i = 0; i < n; i++) {
         Vec3  p  = states_[i].r;
         auto& tr = trails_[i];
-        if (tr.empty() || (p - tr.back()).norm() >= minStep) {
+        if (tr.empty() || (p - tr.back()).mag() >= minStep) {
             tr.push_back(p);
             if (tr.size() > maxPts) tr.erase(tr.begin(), tr.begin() + (tr.size() - maxPts));
         }
@@ -267,6 +267,7 @@ void Renderer::DrawEarth(const RCamera& cam, RVec3 earthC) {
     f.sun_dir = sun;
     f.center  = earthC;
     f.cam_pos = cam.position;
+    f.center_km = ToViewKm({0, 0, 0});
     backend_.DrawEarth(f);
 }
 
@@ -312,11 +313,11 @@ void Renderer::DrawOneRocket(const RocketState& st, float thrustLevel, double de
     f.flick   = 0.82f + 0.12f*sinf(t*46.0f) + 0.06f*sinf(t*71.0f + 1.7f);
     // Atmospheric density factor (~8km scale height): drives Mach diamonds, which
     // only form in atmosphere (over/under-expanded nozzle), not in vacuum.
-    double altitude = st.r.norm() - EARTH_RADIUS;
+    double altitude = st.r.mag() - EARTH_RADIUS;
     f.air     = (float)exp(-fmax(altitude, 0.0) / 8000.0);
     // Aerodynamic heating ~ dynamic pressure (air * v^2): glows on ascent through
     // the dense atmosphere at speed and (much more) on reentry.
-    double speed = st.v.norm();
+    double speed = st.v.mag();
     double q     = (double)f.air * speed * speed;   // ~ dynamic pressure (normalised air)
     f.heating = (float)fmax(0.0, fmin(1.0, (q - 2.0e4) / 4.0e5));
     f.vel_dir = rvDir(st.v);
@@ -338,7 +339,7 @@ void Renderer::DrawPredictedTrajectory() const {
     // primary's path is drawn bright yellow; the others a dimmer grey so the
     // selected rocket stays legible in a crowd.
     auto grav = [](Vec3 p) {
-        double rn = p.norm();
+        double rn = p.mag();
         return p * (-GM_EARTH / (rn * rn * rn));
     };
 
@@ -376,7 +377,7 @@ void Renderer::DrawPredictedTrajectory() const {
             path.push_back({ cur,  col });
             prev = cur;
 
-            if (r.norm() <= EARTH_RADIUS) break;      // reached the surface
+            if (r.mag() <= EARTH_RADIUS) break;      // reached the surface
         }
     }
     backend_.DrawLines(path.data(), path.size(), 2.0f);
@@ -510,7 +511,7 @@ void Renderer::DrawSurfaceMarkers() const {
 
     std::vector<LineVertex> stalks;
     auto pin = [&](const Vec3& surf_eci, RColor c) {
-        double n = surf_eci.norm();
+        double n = surf_eci.mag();
         if (n < 1e-6) return;
         Vec3  out     = surf_eci / n;                          // local vertical (ECI)
         Vec3  tip_eci = surf_eci + out * (pinLen * KM_TO_M);   // lift the cap off the ground
@@ -544,7 +545,7 @@ void Renderer::DrawTelemetry() const {
     double fuel = st.fuel;
 
     // --- attitude ---
-    double rmag  = r.norm();
+    double rmag  = r.mag();
     Vec3   up    = rmag > 1.0 ? r / rmag : Vec3{0, 0, 1};
     Vec3   nose  = qrot(qr, {0, 0, 1});
     double pitch = std::asin(clampd(nose.dot(up), -1.0, 1.0)) * RAD_TO_DEG;
@@ -589,13 +590,13 @@ void Renderer::DrawTelemetry() const {
     row("X",  fmt("%+12.3f", r.x * M_TO_KM), kWhite);
     row("Y",  fmt("%+12.3f", r.y * M_TO_KM), kWhite);
     row("Z",  fmt("%+12.3f", r.z * M_TO_KM), kWhite);
-    row("ALT", fmt("%+12.3f", (r.norm() - EARTH_RADIUS) * M_TO_KM), kWhite);
+    row("ALT", fmt("%+12.3f", (r.mag() - EARTH_RADIUS) * M_TO_KM), kWhite);
 
     header("VELOCITY (m/s)");
-    row("Speed", fmt("%12.3f", v.norm()), kWhite);
+    row("Speed", fmt("%12.3f", v.mag()), kWhite);
 
     header("ACCELERATION (m/s^2)");
-    row("Accel", fmt("%12.6f", a.norm()), kWhite);
+    row("Accel", fmt("%12.6f", a.mag()), kWhite);
 
     header("ATTITUDE");
     row("Pitch",      fmt("%+8.2f deg", pitch),    kWhite);
@@ -622,7 +623,7 @@ std::vector<std::string> Renderer::rocketIds() const {
     for (size_t i = 0; i < states_.size(); i++) {
         // Launch-origin latitude (stable for the whole flight) -> band -> letter.
         Vec3   o   = states_[i].init.origin_r_eci;
-        double n   = o.norm();
+        double n   = o.mag();
         double lat = n > 1e-6 ? std::asin(clampd(o.z / n, -1.0, 1.0)) * RAD_TO_DEG : 0.0;
         int    b   = (int)std::floor((lat + 90.0) / 7.5);
         if (b < 0) b = 0; else if (b > 23) b = 23;

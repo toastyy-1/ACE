@@ -15,7 +15,7 @@ FC_C_SRCS   := $(filter %.c,$(FC_SRC))
 FC_CXX_SRCS := $(filter-out %.c,$(FC_SRC))
 FC_C_OBJS   := $(addprefix build/fc/,$(notdir $(FC_C_SRCS:.c=.o)))
 
-COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp \
+COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp src/renderer/terrain_lod.cpp \
                src/sim/sim.cpp src/sim/rocket.cpp src/sim/config.cpp src/fc/fc_api.cpp \
                $(FC_CXX_SRCS)
 
@@ -29,7 +29,8 @@ RAYLIB_ARCH := -march=native
 TARGET      := program
 
 # --- bgfx backend (`make bgfx`) ---
-BGFX_SRCS   := src/renderer/bgfx/bgfx_backend.cpp src/renderer/bgfx/models.cpp src/renderer/bgfx/earth_bump_map.cpp
+BGFX_SRCS   := src/renderer/bgfx/bgfx_backend.cpp src/renderer/bgfx/bgfx_util.cpp src/renderer/bgfx/models.cpp \
+               src/renderer/bgfx/earth_bump_map.cpp src/renderer/bgfx/terrain.cpp src/renderer/bgfx/terrain_detail.cpp
 BGFX_ARCH   := -mtune=native
 BGFX_TARGET := program-bgfx
 BGFX_DIR    := build/bgfx

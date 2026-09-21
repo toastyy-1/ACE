@@ -16,15 +16,15 @@ void FlightController::s1_powered() {
     ///////////////////////////////////////////////////////////////////////////
     // do initial turn towards target before gravity turn starts
     ///////////////////////////////////////////////////////////////////////////
-    constexpr double init_turn_len = 20.0; // seconds
-    constexpr double init_tilt_angle = 50.0 * DEG_TO_RAD;
+    constexpr double init_turn_len = 2.0; // seconds
+    constexpr double init_tilt_angle = 90.0 * DEG_TO_RAD;
 
     if (dt < init_turn_len) {
-        Vec3 up = cs.r.normalized();
+        Vec3 up = cs.r.unit();
 
         // direction towards the target in the plane perpendicular to the rockets starting up point
         Vec3 downrange_from_origin = r_target - cs.is.r_origin;
-        downrange_from_origin = (downrange_from_origin - up * downrange_from_origin.dot(up)).normalized();
+        downrange_from_origin = (downrange_from_origin - up * downrange_from_origin.dot(up)).unit();
 
         // turned slightly
         Vec3 tilt = up * cos(init_tilt_angle) + downrange_from_origin * sin(init_tilt_angle);
@@ -35,15 +35,20 @@ void FlightController::s1_powered() {
     // after initial turn, start gravity turn (follow v vec)
     ///////////////////////////////////////////////////////////////////////////
     else {
+        cs.stage = FREE_FLIGHT;
+        cs.cutoff_engine_flag = true;
         // align with plane connecting to target and blend with current velocity vector
-        Vec3 n = cs.is.r_origin.cross(r_target).normalized();
+        Vec3 n = cs.is.r_origin.cross(r_target).unit();
         Vec3 v_in_target_plane = cs.v - n * cs.v.dot(n);
-        cs.target_att = quat_from_vec(v_in_target_plane.normalized());
+        cs.target_att = quat_from_vec(v_in_target_plane.unit());
     }
 
     ///////////////////////////////////////////////////////////////////////////
     // separate once the stage has burned out
     ///////////////////////////////////////////////////////////////////////////
+    // note:: you should add stage separation additionally take into account
+    // vibration and force checking to see if the engines are on thru the IMU
+    // blended with this estimate!
     if (cs.time - cs.stage_burn_time_start > cs.is.stage_burn_time[0] + 1) {
         cs.separate_stage_flag = true;
         cs.light_engine_flag = true;
@@ -87,8 +92,8 @@ static double lambert_F(double z, double r_norm, double r_t_norm, double A, doub
 
 // lambert problem (determine velocity vector that reaches target in time tff given current position)
 static Vec3 lambert(Vec3 r, Vec3 r_t, double tff) {
-    double r_norm = r.norm();
-    double r_t_norm = r_t.norm();
+    double r_norm = r.mag();
+    double r_t_norm = r_t.mag();
 
     // transfer angle
     double d_theta = acos(r.dot(r_t) / (r_norm * r_t_norm));
@@ -138,7 +143,7 @@ Vec3 FlightController::v_req_for_tof(double tof) const {
 
 // delta v needed to get onto the tof trajectory
 double FlightController::dv_for_tof(double tof) const {
-    return (v_req_for_tof(tof) - cs.v).norm();
+    return (v_req_for_tof(tof) - cs.v).mag();
 }
 
 void FlightController::s2_powered() {
@@ -197,10 +202,10 @@ void FlightController::s2_powered() {
     // the cutoff should be tied to the max possible delta V of the 3rd stage engine
     double next_delta_v = fc_stage_delta_v(&stage(2));
     double estimated_s2_burn_time = fc_stage_burn_time(&stage(1));
-    if (v_gain.norm() < next_delta_v - 0.5 * next_delta_v || burn_time > estimated_s2_burn_time) { // within 20% for margin of error, or motor depleted
+    if (v_gain.mag() < next_delta_v - 0.5 * next_delta_v || burn_time > estimated_s2_burn_time) { // within 20% for margin of error, or motor depleted
         // stop engine to stop overshoot
         cs.cutoff_engine_flag = true;
-        std::cout << "ENGINE_CUTOFF at " << v_gain.norm() << "m/s " << "with next stage having delta v: " << next_delta_v << "m/s\n";
+        std::cout << "ENGINE_CUTOFF at " << v_gain.mag() << "m/s " << "with next stage having delta v: " << next_delta_v << "m/s\n";
         
         // switch stage
         cs.stage = PAYLOAD_DEPLOY;
@@ -212,7 +217,7 @@ void FlightController::s2_powered() {
     }
 
     // set attitude to new target
-    cs.target_att = quat_from_vec(v_gain.normalized());
+    cs.target_att = quat_from_vec(v_gain.unit());
 
 }
 
@@ -244,7 +249,7 @@ void FlightController::payload_deploy() {
 
     // burn is ready once the attitude error has gotten low enough so engins is not lit while the rocket is still wobbling around
     constexpr double attitude_tolerance = 0.5 * DEG_TO_RAD; // rad
-    bool burn_ready = n.norm() < attitude_tolerance;
+    bool burn_ready = n.mag() < attitude_tolerance;
     if (burn_ready) { cs.light_engine_flag = true; }
 
     ////////////////////////////////////////////////////////////////////////////////////////
@@ -294,11 +299,11 @@ void FlightController::payload_deploy() {
     Vec3 v_gain = v_req - cs.v;
 
     // cut off when the remaining v to gain is smaller than the delta v the engine will add in the next step
-    double dv_next_step = cs.a_inertial.norm() * cs.dt;
+    double dv_next_step = cs.a_inertial.mag() * cs.dt;
     bool burning = dv_next_step > 0.01;
 
     // remaining delta v projected onto the thrust axis
-    double v_needed = v_gain.dot(cs.a_inertial.normalized());
+    double v_needed = v_gain.dot(cs.a_inertial.unit());
 
     // once a single full step would meet or pass the target, burn only the needed
     // fraction of this step and then cut off
@@ -316,15 +321,15 @@ void FlightController::payload_deploy() {
     }
 
     // make rocket not demolish its trajectory when its close to v cutoff
-    if (!burning || v_gain.norm() > 3.0 * dv_next_step) {
-        cs.target_att = quat_from_vec(v_gain.normalized());
+    if (!burning || v_gain.mag() > 3.0 * dv_next_step) {
+        cs.target_att = quat_from_vec(v_gain.unit());
     }
 }
 
 void FlightController::free_flight() {
     // determine altitude relative to target
     Vec3 target_eci = target_eci_at_time_of_arrival(cs.time);
-    double dist = (cs.r - target_eci).norm();
+    double dist = (cs.r - target_eci).mag();
 
     if (dist < 1000.0) {
         cs.detonate_flag = true;

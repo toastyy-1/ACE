@@ -22,6 +22,9 @@ public:
 
     bool Valid() const { return !heights_.empty(); }
     bgfx::TextureHandle Texture() const { return tex_; }
+    // Height map size in texels (equirectangular: width spans longitude).
+    uint32_t Width() const  { return w_; }
+    uint32_t Height() const { return h_; }
 
     double SurfaceRadius3D(const Vec3& r) const;
 
@@ -33,6 +36,7 @@ public:
 
 private:
     double sampleHeight01(const Vec3& r) const;
+    void   uploadHeights();   // heights_ -> tex_ (R8 + mips)
 
     bgfx::TextureHandle  tex_ = BGFX_INVALID_HANDLE;
     std::vector<uint8_t> heights_;

@@ -52,7 +52,7 @@ class Rocket {
     // getters:
     RocketState get_state() const;
     bool is_detonated() { return detonated; }
-    int active_stage() const { return active_idx; } // index the fc's stage array with this
+    int active_stage_idx() const { return active_idx; } // index the fc's stage array with this
 
     // setters (should only be used on setup)
     void set_pos(const Vec3& pos) { r = pos; } // set absolute position
@@ -135,8 +135,8 @@ class Rocket {
     double altitude = 0;
 
     // accessors for the currently active stage
-    Stage& active() { return props.stages[active_idx]; }
-    const Stage& active() const { return props.stages[active_idx]; }
+    Stage& active_stage() { return props.stages[active_idx]; }
+    const Stage& active_stage() const { return props.stages[active_idx]; }
     int num_stages() const { return static_cast<int>(props.stages.size()); }
 
     // rocket explode button
@@ -150,4 +150,7 @@ class Rocket {
     Vec3 nose_direction_eci();
     Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
     Vec3 lat_lon_to_ecef(double latitude_deg, double longitude_deg);
+    double rocket_length() const; // nose to aft end of the remaining stack (m)
+    bool is_rocket_on_ground(double com_dist_from_gnd); // snaps the rocket onto the surface if it is touching the ground
+    void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 };

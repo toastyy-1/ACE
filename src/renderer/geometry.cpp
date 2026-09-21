@@ -132,7 +132,7 @@ Mesh buildSphere(float radius, int rings, int sectors, float lonOffset) {
     return m;
 }
 
-Mesh buildGrid(int n) {
+Mesh buildGrid(int n, bool skirt) {
     Mesh m;
     for (int i = 0; i <= n; ++i) {
         float gy = (float)i / n * 2.0f - 1.0f;
@@ -149,6 +149,28 @@ Mesh buildGrid(int n) {
             m.idx.push_back(a); m.idx.push_back(c); m.idx.push_back(b);
             m.idx.push_back(b); m.idx.push_back(c); m.idx.push_back(d);
         }
+    }
+    if (!skirt) return m;
+
+    // Border indices in one loop around the grid, then a copy of each at z = 1
+    // and a quad strip joining the two rings.
+    std::vector<uint32_t> border;
+    for (int j = 0; j < n; ++j) border.push_back(j);                          // bottom, left -> right
+    for (int i = 0; i < n; ++i) border.push_back(i*stride + n);               // right, bottom -> top
+    for (int j = n; j > 0; --j) border.push_back(n*stride + j);               // top, right -> left
+    for (int i = n; i > 0; --i) border.push_back(i*stride);                   // left, top -> bottom
+    uint32_t ring = (uint32_t)m.verts.size();
+    for (uint32_t b : border) {
+        Vertex v = m.verts[b];
+        v.pos.z = 1.0f;
+        m.verts.push_back(v);
+    }
+    const uint32_t k = (uint32_t)border.size();
+    for (uint32_t i = 0; i < k; ++i) {
+        uint32_t a = border[i], b = border[(i + 1) % k];
+        uint32_t sa = ring + i, sb = ring + (i + 1) % k;
+        m.idx.push_back(a); m.idx.push_back(sa); m.idx.push_back(b);
+        m.idx.push_back(b); m.idx.push_back(sa); m.idx.push_back(sb);
     }
     return m;
 }
