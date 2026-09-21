@@ -21,7 +21,7 @@ struct Stage {
     double max_thrust;              // rated (max) motor thrust
     double thrust;                  // current commanded thrust
     double engine_distance;         // distance of engine from leading edge
-    double engine_gimball_range;    // rad
+    double engine_gimball_range;    // deg
     Vec3 rcs_max_capable_moment;    // n-m torque that RCS system for that stage can apply about axes along CoM (set 0 if no rcs)
 
     // velcoty of exhaust of the engine

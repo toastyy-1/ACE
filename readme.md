@@ -167,6 +167,11 @@ void  fc_free(void* state);                          // on vehicle destruction
 carrying INS noise from ins.hpp), plus `g`, which is the sim's own gravity at
 the true position. `g` is a debug tool, so you're a chud if you use it.
 
+The accelerometer measures specific force (everything except gravity), so sitting on the pad it
+reads about `+9.81` along body `+z`, and in free fall it reads about zero. The gyro measures rates
+relative to inertial space, so on the pad it picks up the earth's rotation. To get an inertial
+acceleration, rotate `a_spec` into ECI with your attitude estimate and add your own gravity.
+
 ### What you can command
 
 ```c
@@ -196,20 +201,27 @@ The sim applies them after `fc_update` returns, in a fixed order (burn/cutoff, s
 #include "fc/fc_api.h"
 #include <stdlib.h>
 
-typedef struct { const fc_vehicle* veh; fc_vec3 r, v; int lit; } my_fc;
+typedef struct { const fc_vehicle* veh; fc_vec3 r, v; fc_quat q; int lit; } my_fc;
 
 void* fc_init(const fc_vehicle* vehicle, double t) {
     my_fc* s = calloc(1, sizeof(my_fc));
     s->veh = vehicle;
     s->r = vehicle->r_origin_eci;
     s->v = fc_surface_velocity_eci(vehicle->r_origin_eci);
+    s->q = vehicle->q_origin_eci;
     return s;
 }
 
 void fc_update(void* state, const fc_sensors* sen) {
     my_fc* s = (my_fc*)state;
 
-    fc_vec3 a = fc_v3_add(fc_q_rotate(s->veh->q_origin_eci, sen->a_spec), fc_gravity_j2(s->r));
+    // attitude from the gyro
+    fc_quat dq = fc_q_mul(s->q, fc_q(0.0, sen->w.x, sen->w.y, sen->w.z));
+    s->q = fc_q_normalize(fc_q(s->q.w + 0.5 * dq.w * sen->dt, s->q.x + 0.5 * dq.x * sen->dt,
+                               s->q.y + 0.5 * dq.y * sen->dt, s->q.z + 0.5 * dq.z * sen->dt));
+
+    // accelerometer is body frame specific force: rotate to ECI and add gravity back
+    fc_vec3 a = fc_v3_add(fc_q_rotate(s->q, sen->a_spec), fc_gravity_j2(s->r));
     s->v = fc_v3_add(s->v, fc_v3_scale(a, sen->dt));
     s->r = fc_v3_add(s->r, fc_v3_scale(s->v, sen->dt));
 

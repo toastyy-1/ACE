@@ -35,7 +35,7 @@ struct ControlStates {
 
     // states
     Vec3 g; // gravity vector
-    Vec3 a_inertial; // inertial acceleration
+    Vec3 a_inertial; // specific force (accelerometer) rotated into ECI
     Vec3 a; // g + a_inertial
     Vec3 v;
     Vec3 r;
@@ -44,6 +44,12 @@ struct ControlStates {
     Quat target_att; // the current iterations target attitude
     Vec3 I; // current moment of inertia
     double z_cm; // CoM estimate
+
+    int active_stage = 0; // index of the stage on the bottom
+    int lit_stage = -1; // stage whose engine is burning, -1 if none
+    double throttle = 0.0; // fraction of a full step the lit engine burns on the next step
+    bool burn_ends = false; // the lit engine shuts down after the next step (sub step burn)
+    std::vector<double> fuel; // propellant estimate per stage
 
     double dt; // time from last time measurement
     double time;
@@ -99,6 +105,12 @@ class FlightController {
     Quat set_new_engine_gimbal_quat();
     Vec3 calculate_rcs_moments_to_achieve_target_orientation(); // longest function name ever lets go
     void calculate_I();
+    void track_fuel();
+    double fuel_fill(int i) const;
+    double fuel_CoM(int i) const;
+    double dry_CoM(int i) const;
+    Vec3 v_req_for_tof(double tof) const;
+    double dv_for_tof(double tof) const;
     void command_engine_cutoff() { cs.cutoff_engine_flag = true; }
 
     // stages

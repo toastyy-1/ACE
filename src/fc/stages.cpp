@@ -74,6 +74,17 @@ static double Sz(double z) {
     return 1.0 / 6.0;
 }
 
+// helper for y(z) function in lambert
+static double lambert_y(double z, double r_norm, double r_t_norm, double A) {
+    return r_norm + r_t_norm + A * (z * Sz(z) - 1.0) / sqrt(Cz(z));
+}
+
+// time of flight error at a given z
+static double lambert_F(double z, double r_norm, double r_t_norm, double A, double tff) {
+    double y = lambert_y(z, r_norm, r_t_norm, A);
+    return pow(y / Cz(z), 1.5) * Sz(z) + A * sqrt(y) - sqrt(GM_EARTH) * tff;
+}
+
 // lambert problem (determine velocity vector that reaches target in time tff given current position)
 static Vec3 lambert(Vec3 r, Vec3 r_t, double tff) {
     double r_norm = r.norm();
@@ -85,28 +96,17 @@ static Vec3 lambert(Vec3 r, Vec3 r_t, double tff) {
     // some constant
     double A = sin(d_theta) * sqrt( (r_norm * r_t_norm) / (1 - cos(d_theta)) );
 
-    // helper for y(z) function in lambert
-    auto y_z = [&](double z) {
-        return r_norm + r_t_norm + A * (z * Sz(z) - 1.0) / sqrt(Cz(z));
-    };
-
     // iterate z until the trajectory's time of flight is the same as the input time of flight
     double z = 0.0; // initial number guess
-    while (y_z(z) < 0.0) z += 0.1; // bump up z until y(z) is good enough
+    while (lambert_y(z, r_norm, r_t_norm, A) < 0.0) z += 0.1; // bump up z until y(z) is good enough
 
     // now iterate on z to find the best one using secant search
     double z0 = 0.0;
     double z1 = 0.1; // start with initial guesses that are kinda close to one another
 
-    // time of flight error at a given z
-    auto F_z = [&](double z_in) {
-        double y = y_z(z_in);
-        return pow(y / Cz(z_in), 1.5) * Sz(z_in) + A * sqrt(y) - sqrt(GM_EARTH) * tff;
-    };
-
-    double F0 = F_z(z0);
+    double F0 = lambert_F(z0, r_norm, r_t_norm, A, tff);
     for (int i = 0; i < 60; i++) {
-        double F1 = F_z(z1);
+        double F1 = lambert_F(z1, r_norm, r_t_norm, A, tff);
 
         // step
         double z_next = z1 - F1 * (z1 - z0) / (F1 - F0);
@@ -124,11 +124,21 @@ static Vec3 lambert(Vec3 r, Vec3 r_t, double tff) {
     }
 
     // now we determine the lagrange multipliers as part of the analytical version of the lambert problem to find our required velocity vector
-    double y = y_z(z);
+    double y = lambert_y(z, r_norm, r_t_norm, A);
     double f = 1 - y / r_norm;
     double g = A * sqrt(y / GM_EARTH);
 
     return (r_t - r * f) * (1 / g); // optimal taret velocity
+}
+
+// velocity needed to hit where the target will be after tof of earth spin
+Vec3 FlightController::v_req_for_tof(double tof) const {
+    return lambert(cs.r, target_eci_at_time_of_arrival(cs.time + tof), tof);
+}
+
+// delta v needed to get onto the tof trajectory
+double FlightController::dv_for_tof(double tof) const {
+    return (v_req_for_tof(tof) - cs.v).norm();
 }
 
 void FlightController::s2_powered() {
@@ -136,12 +146,6 @@ void FlightController::s2_powered() {
     double burn_time = cs.time - cs.stage_burn_time_start;
 
     Vec3& v_req = cs.s2_v_req; // optimal required velocity
-
-    // aim at where the target will be after tof of earth spin
-    auto v_req_for_tof = [&](double tof) {
-        return lambert(cs.r, target_eci_at_time_of_arrival(cs.time + tof), tof);
-    };
-    auto dv = [&](double tof) { return (v_req_for_tof(tof) - cs.v).norm(); };
 
     ////////////////////////////////////////////////////////////
     // determine the minimum rquired velocity
@@ -162,8 +166,8 @@ void FlightController::s2_powered() {
         double x2 = a + rho * (b - a);
 
         // do the lambert problem on these two points (smallest change in velocity)
-        double f1 = dv(x1);
-        double f2 = dv(x2);
+        double f1 = dv_for_tof(x1);
+        double f2 = dv_for_tof(x2);
 
         // iterate on a and b to find the minimum delta v point
         while ((b - a) > 0.1) {
@@ -172,14 +176,14 @@ void FlightController::s2_powered() {
                 x2 = x1;
                 f2 = f1;
                 x1 = b - rho * (b - a);
-                f1 = dv(x1);
+                f1 = dv_for_tof(x1);
             }
             else {
                 a = x1;
                 x1 = x2;
                 f1 = f2;
                 x2 = a + rho * (b - a);
-                f2 = dv(x2);
+                f2 = dv_for_tof(x2);
             }
         }
 
@@ -248,12 +252,6 @@ void FlightController::payload_deploy() {
     ////////////////////////////////////////////////////////////////////////////////////////
     Vec3& v_req = cs.s3_v_req; // optimal required velocity
 
-    // aim at where the target will be after tof of earth spin
-    auto v_req_for_tof = [&](double tof) {
-        return lambert(cs.r, target_eci_at_time_of_arrival(cs.time + tof), tof);
-    };
-    auto dv = [&](double tof) { return (v_req_for_tof(tof) - cs.v).norm(); };
-
     // only run the search every few steps
     if (cs.s3_lambert_counter >= cs.s3_lambert_counter_reset_num) {
         cs.s3_lambert_counter = 0; // reset counter
@@ -268,8 +266,8 @@ void FlightController::payload_deploy() {
         double x2 = a + rho * (b - a);
 
         // do the lambert problem on these two points
-        double f1 = dv(x1);
-        double f2 = dv(x2);
+        double f1 = dv_for_tof(x1);
+        double f2 = dv_for_tof(x2);
 
         // iterate on a and b to find the minimum delta v point
         while ((b - a) > 0.1) {
@@ -278,14 +276,14 @@ void FlightController::payload_deploy() {
                 x2 = x1;
                 f2 = f1;
                 x1 = b - rho * (b - a);
-                f1 = dv(x1);
+                f1 = dv_for_tof(x1);
             }
             else {
                 a = x1;
                 x1 = x2;
                 f1 = f2;
                 x2 = a + rho * (b - a);
-                f2 = dv(x2);
+                f2 = dv_for_tof(x2);
             }
         }
 

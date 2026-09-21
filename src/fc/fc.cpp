@@ -64,7 +64,8 @@ FCInitState FlightController::create_target_trajectory(double lat_target, double
     };
     Vec3 up = {0, 0, 1};
     Vec3 rotation_axis = up.cross(unit_vec_from_center);
-    Vec3 rot_axis_u = rotation_axis / rotation_axis.norm();
+    double axis_norm = rotation_axis.norm();
+    Vec3 rot_axis_u = axis_norm > 1e-12 ? rotation_axis / axis_norm : Vec3{1, 0, 0}; // any axis works at the poles
     double half_theta = acos(sin(lat_origin)) / 2;
     out.q_origin = {
         .w = cos(half_theta),
@@ -107,6 +108,9 @@ void FlightController::init(double current_time) {
     cs.att = cs.is.q_origin; // set initial orientation
     cs.target_att = cs.is.q_origin;
     countdown_start = current_time;
+
+    cs.fuel.reserve(num_stages());
+    for (int i = 0; i < num_stages(); i++) cs.fuel.push_back(stage(i).m_fuel);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,8 +119,8 @@ void FlightController::init(double current_time) {
 
 // aquires new data from the sim
 void FlightController::pull_new_data(const fc_sensors& sensors) {
-    cs.g = sensors.g;
-    cs.a_inertial = sensors.a_spec;
+    cs.g = fc_gravity_j2(cs.r);
+    cs.a_inertial = fc_q_rotate(cs.att, sensors.a_spec); // body -> ECI
     cs.a = cs.a_inertial + cs.g;
     cs.w = sensors.w;
     cs.dt = sensors.dt;
@@ -187,7 +191,7 @@ Quat FlightController::set_new_engine_gimbal_quat() {
     // map torque to gimball command angles
 
     // active stage index for the current mission stage
-    const fc_stage& s = stage(cs.stage);
+    const fc_stage& s = stage(cs.active_stage);
 
     // CoM of the rocket
     double z_cm = cs.z_cm;
@@ -232,22 +236,57 @@ Vec3 FlightController::calculate_rcs_moments_to_achieve_target_orientation() {
     return { tau_req.x, tau_req.y, tau_req.z };
 }
 
+// drains the propellant estimate for whatever burned over the last step
+void FlightController::track_fuel() {
+    if (cs.lit_stage < 0) return;
+
+    double& f = cs.fuel[cs.lit_stage];
+    f = std::max(0.0, f - fc_stage_max_mass_flow(&stage(cs.lit_stage)) * cs.throttle * cs.dt);
+
+    // sub step burn only lasts one step
+    if (cs.burn_ends) {
+        cs.burn_ends = false;
+        cs.lit_stage = -1;
+        cs.throttle = 0.0;
+    }
+}
+
+// fraction of a stage's propellant estimated to still be in the tank
+double FlightController::fuel_fill(int i) const {
+    return stage(i).m_fuel > 0 ? cs.fuel[i] / stage(i).m_fuel : 0.0;
+}
+
+// propellant column CoM from the stage tip as the tank drains
+double FlightController::fuel_CoM(int i) const {
+    return stage(i).fuel_CoM_dist + 0.5 * stage(i).fuel_length * (1.0 - fuel_fill(i));
+}
+
+// dry structure CoM from the stage tip
+double FlightController::dry_CoM(int i) const {
+    const fc_stage& st = stage(i);
+    if (st.m_dry > 0) {
+        return ((st.m_dry + st.m_fuel) * st.CoM_dist - st.m_fuel * st.fuel_CoM_dist) / st.m_dry;
+    } else {
+        return st.CoM_dist;
+    }
+}
+
 // integrates things to give a decent estimate of what the current moment of inertia of the rocket is
 void FlightController::calculate_I() {
     Vec3 I = {0};
     double R2 = veh.radius * veh.radius;
 
-    const int first_stage = cs.stage < STAGE_1 ? STAGE_1 : cs.stage;
+    const int first_stage = cs.active_stage;
     const int stage_count = num_stages();
 
     // mass-weighted center of mass of the remaining stages
     double M_total = 0.0, m_CoM = 0.0, base = 0.0;
     for (int i = first_stage; i < stage_count; i++) {
         const fc_stage& st = stage(i);
-        double m = st.m_dry + st.m_fuel;
-        M_total += m;
-        m_CoM += m * (base + st.tip_to_end_length - st.CoM_dist);
-        base += st.tip_to_end_length;
+        double L = st.tip_to_end_length;
+        M_total += st.m_dry + cs.fuel[i];
+        m_CoM += st.m_dry * (base + L - dry_CoM(i)) + cs.fuel[i] * (base + L - fuel_CoM(i));
+        base += L;
     }
     double z_cm = m_CoM / M_total;
     cs.z_cm = z_cm;
@@ -255,15 +294,17 @@ void FlightController::calculate_I() {
     base = 0.0;
     for (int i = first_stage; i < stage_count; i++) {
         const fc_stage& s = stage(i); // selected stage
-        double M = s.m_dry + s.m_fuel;
         double L = s.tip_to_end_length;
+        double L_f = s.fuel_length * fuel_fill(i);
 
         // about z axis
-        I.z += 0.5 * M * R2;
+        I.z += 0.5 * (s.m_dry + cs.fuel[i]) * R2;
 
-        // about x and y axes parallel axis theorem from each stage centroid to z_cm
-        double d = (base + L - s.CoM_dist) - z_cm;
-        double Ixy = M * (L * L / 12.0 + R2 / 4) + M * d * d;
+        // about x and y axes parallel axis theorem from the structure and propellant centroids to z_cm
+        double d_dry = (base + L - dry_CoM(i)) - z_cm;
+        double d_fuel = (base + L - fuel_CoM(i)) - z_cm;
+        double Ixy = s.m_dry * (L * L / 12.0 + R2 / 4) + s.m_dry * d_dry * d_dry
+                   + cs.fuel[i] * (L_f * L_f / 12.0 + R2 / 4) + cs.fuel[i] * d_fuel * d_fuel;
         I.x += Ixy;
         I.y += Ixy;
 
@@ -294,6 +335,7 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
 
     // estimate state based on pulled data
     estimate_state();
+    track_fuel();
 
     // manages setting a target attitude for the engine gimballing stuff depending on what the stage is
     switch (cs.stage) {
@@ -305,8 +347,6 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
             cs.stage_burn_time_start = cs.time;
             cs.stage = STAGE_1;
         }
-        
-        cs.v = surface_velocity_eci(cs.r); // set to pad velocity because the integrator doesnt account for the normal force so it thinks the rocket moves when sitting on pad
         break;
     case STAGE_1: {
         s1_powered();
@@ -331,22 +371,33 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
         cs.final_burn_flag = false;
         // fractional burn (burn that is sub step to time step)
         fc_burn_fraction(cs.final_burn_fraction);
+        cs.throttle = std::clamp(cs.final_burn_fraction, 0.0, 1.0);
+        cs.burn_ends = true;
     }
     else if (cs.cutoff_engine_flag) {
         cs.cutoff_engine_flag = false;
         fc_cutoff_engine();
+        cs.lit_stage = -1;
+        cs.throttle = 0.0;
     }
 
     // check if the stage was supposed to be separated (clears the engine lock for the fresh stage)
     if (cs.separate_stage_flag) {
         cs.separate_stage_flag = false;
         fc_separate_stage();
+        if (cs.active_stage + 1 < num_stages()) cs.active_stage++;
+        cs.lit_stage = -1;
+        cs.throttle = 0.0;
     }
 
     // check if engine was supposed to be lit
     if (cs.light_engine_flag) {
         cs.light_engine_flag = false;
         fc_light_engine();
+        if (cs.lit_stage != cs.active_stage) {
+            cs.lit_stage = cs.active_stage;
+            cs.throttle = 1.0;
+        }
     }
 
     // check if rocket was supposed to be detonated

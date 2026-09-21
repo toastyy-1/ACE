@@ -31,6 +31,7 @@ namespace sim {
         ///////////////////////////////////////////////////////////////////////////////////////////////
         SimConfig config = load_sim_config("config/sim.yaml");
         TIME_STEP = config.time_step;
+        STEP_DELAY = config.step_delay;
 
         for (const RocketEntry& rocket : config.rockets) {
             rocket_list.emplace_back(rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon, rocket.props);
@@ -41,7 +42,7 @@ namespace sim {
 
         // snapshots for renderer when its ready
         using wall_clock = std::chrono::steady_clock;
-        auto next_publish = wall_clock::now();
+        wall_clock::time_point next_publish = wall_clock::now();
 
         while (running.load()) {
 
@@ -65,11 +66,11 @@ namespace sim {
 
                 // delete rocket if it exploded
                 if (r.is_detonated()) {
+                    r.life_countdown -= TIME_STEP;
                     if (r.life_countdown <= 0) {
-                        rocket_list.erase(rocket_list.begin() + i);
+                        rocket_list.erase(rocket_list.begin() + i); // r dangles after this
                         i--;
                     }
-                    r.life_countdown -= TIME_STEP;
                 }
             }
 

@@ -33,7 +33,7 @@ SimConfig load_sim_config(const std::string& path) {
     // one entry per rocket
     if (root.is_mapping() && root.contains("rockets") && root["rockets"].is_sequence()) {
         size_t ri = 0;
-        for (const auto& rn : root["rockets"]) {
+        for (const fkyaml::node& rn : root["rockets"]) {
             RocketEntry rocket;
 
             rocket.origin_lat = value_or(rn, "origin_lat", 0.0);
@@ -53,7 +53,7 @@ SimConfig load_sim_config(const std::string& path) {
 
             if (has_stages) {
                 size_t si = 0;
-                for (const auto& st : rn["stage"]) {
+                for (const fkyaml::node& st : rn["stage"]) {
                     Stage s{};
 
                     s.id                    = value_or(st, "id", 0.0);

@@ -247,53 +247,53 @@ static Vec3 calc_gravity_accel(const Vec3& r) {
     };
 }
 
+// power relationship density equation, sets T to the layer temperature
+static double pow_dens(double altitude, double& T, double rho_b, double T_b, double L, double layer_base_alt) {
+    T = T_b + L * (altitude - layer_base_alt);
+    return rho_b * pow(( T / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
+}
+
+// exponential relationship density equation, sets T to the layer temperature
+static double exp_dens(double altitude, double& T, double rho_b, double T_b, double layer_base_alt) {
+    T = T_b;
+    return rho_b * exp(-1.0 * (g0 * (altitude - layer_base_alt)) / (R_d * T_b));
+}
+
 // standard atmosphere layers
 static void atmosphere(double altitude, double& air_density, double& air_pressure) {
     double T = 288.15; // layer temperature, set by whichever branch runs
 
-    // power relationship density equation
-    auto pow_dens = [&](double rho_b, double T_b, double L, double layer_base_alt) {
-        T = T_b + L * (altitude - layer_base_alt);
-        return rho_b * pow(( T / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
-    };
-
-    // exponential relationship density equation
-    auto exp_dens = [&](double rho_b, double T_b, double layer_base_alt) {
-        T = T_b;
-        return rho_b * exp(-1.0 * (g0 * (altitude - layer_base_alt)) / (R_d * T_b));
-    };
-
     // troposphere
     if (altitude < 11000) {
-        air_density = pow_dens(1.2250, 288.15, -0.0065, 0);
+        air_density = pow_dens(altitude, T, 1.2250, 288.15, -0.0065, 0);
     }
     // lower stratosphere
     else if (altitude < 20000) {
-        air_density = exp_dens(0.36391, 216.65, 11000);
+        air_density = exp_dens(altitude, T, 0.36391, 216.65, 11000);
     }
     // middle stratosphere
     else if (altitude < 32000) {
-        air_density = pow_dens(0.088035, 216.65, 0.001, 20000);
+        air_density = pow_dens(altitude, T, 0.088035, 216.65, 0.001, 20000);
     }
     // upper stratosphere
     else if (altitude < 47000) {
-        air_density = pow_dens(0.013225, 228.65, 0.0028, 32000);
+        air_density = pow_dens(altitude, T, 0.013225, 228.65, 0.0028, 32000);
     }
     // lower mesosphere
     else if (altitude < 51000) {
-        air_density = exp_dens(0.0014275, 270.65, 47000);
+        air_density = exp_dens(altitude, T, 0.0014275, 270.65, 47000);
     }
     // middle mesosphere
     else if (altitude < 71000) {
-        air_density = pow_dens(0.00086160, 270.65, -0.0028, 51000);
+        air_density = pow_dens(altitude, T, 0.00086160, 270.65, -0.0028, 51000);
     }
     // upper mesosphere
     else if (altitude < 86000) {
-        air_density = pow_dens(0.000064211, 214.65, -0.0020, 71000);
+        air_density = pow_dens(altitude, T, 0.000064211, 214.65, -0.0020, 71000);
     }
     // thermosphere
     else {
-        air_density = exp_dens(0.000006958, 186.87, 86000);
+        air_density = exp_dens(altitude, T, 0.000006958, 186.87, 86000);
     }
 
     air_pressure = air_density * R_d * T;
@@ -323,6 +323,22 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, double mass) {
     return v_relative * (-drag_mag / (mass * craft_speed));
 }
 
+// angular acceleration in the body frame
+static Vec3 ang_accel(const Vec3& w_i, const Vec3& I, const Vec3& net_torque) {
+    Vec3 Iw = {I.x * w_i.x, I.y * w_i.y, I.z * w_i.z};
+    Vec3 gyro = w_i.cross(Iw);
+    return Vec3{
+        (net_torque.x - gyro.x) / I.x,
+        (net_torque.y - gyro.y) / I.y,
+        (net_torque.z - gyro.z) / I.z,
+    };
+}
+
+// translational acceleration in the ECI frame
+Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body) {
+    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
+}
+
 static Quat quat_deriv(const Quat& q, const Vec3& w) {
     Quat omega = {0.0, w.x, w.y, w.z};
     return (q * omega) * 0.5;
@@ -339,7 +355,11 @@ void Rocket::update_dynamics(double current_time) {
     // propellant drain
     Stage& s = active();
     double mdot = s.mass_flow_rate();
-    if (mdot * dt > s.m_fuel) mdot = s.m_fuel / dt;
+    double burn_frac = 1.0; // fraction of the step the remaining propellant lasts
+    if (mdot * dt > s.m_fuel) {
+        burn_frac = s.m_fuel / (mdot * dt);
+        mdot = s.m_fuel / dt;
+    }
 
     // adjust thrust for isp change
     double air_density, air_pressure;
@@ -350,27 +370,15 @@ void Rocket::update_dynamics(double current_time) {
     } else {
         thrust_scale = 1.0;
     }
+    thrust_scale *= burn_frac;
 
     // quantities the FC commands
     Vec3 thrust_body = engine_thrust_body(thrust_scale);
     Vec3 net_torque = net_body_torque(thrust_scale);
 
-    // translational acceleration
-    auto accel = [&](double t_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i) {
-        double m_i = m - mdot * t_i;
-        return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
-    };
-
-    // angular acceleration
-    auto ang_accel = [&](const Vec3& w_i) {
-        Vec3 Iw = {I.x * w_i.x, I.y * w_i.y, I.z * w_i.z};
-        Vec3 gyro = w_i.cross(Iw);
-        return Vec3{
-            (net_torque.x - gyro.x) / I.x,
-            (net_torque.y - gyro.y) / I.y,
-            (net_torque.z - gyro.z) / I.z,
-        };
-    };
+    // mass at the start, middle, and end of the step
+    double m_mid = m - mdot * (dt / 2);
+    double m_end = m - mdot * dt;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // RK4 integration                                                                           //
@@ -380,8 +388,8 @@ void Rocket::update_dynamics(double current_time) {
     // k1 terms                       //
     ////////////////////////////////////
     Vec3 k1_r = v;
-    Vec3 k1_v = accel(0.0, r, v, q_rocket);
-    Vec3 k1_w = ang_accel(w);
+    Vec3 k1_v = translational_accel(m, r, v, q_rocket, thrust_body);
+    Vec3 k1_w = ang_accel(w, I, net_torque);
     Quat k1_q = quat_deriv(q_rocket, w);
 
     ////////////////////////////////////
@@ -392,8 +400,8 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w2 = w + k1_w * (dt / 2);
     Quat q2 = q_rocket + k1_q * (dt / 2);
     Vec3 k2_r = v2;
-    Vec3 k2_v = accel(dt / 2, r2, v2, q2);
-    Vec3 k2_w = ang_accel(w2);
+    Vec3 k2_v = translational_accel(m_mid, r2, v2, q2, thrust_body);
+    Vec3 k2_w = ang_accel(w2, I, net_torque);
     Quat k2_q = quat_deriv(q2, w2);
 
     ////////////////////////////////////
@@ -404,8 +412,8 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w3 = w + k2_w * (dt / 2);
     Quat q3 = q_rocket + k2_q * (dt / 2);
     Vec3 k3_r = v3;
-    Vec3 k3_v = accel(dt / 2, r3, v3, q3);
-    Vec3 k3_w = ang_accel(w3);
+    Vec3 k3_v = translational_accel(m_mid, r3, v3, q3, thrust_body);
+    Vec3 k3_w = ang_accel(w3, I, net_torque);
     Quat k3_q = quat_deriv(q3, w3);
 
     ////////////////////////////////////
@@ -416,8 +424,8 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w4 = w + k3_w * dt;
     Quat q4 = q_rocket + k3_q * dt;
     Vec3 k4_r = v4;
-    Vec3 k4_v = accel(dt, r4, v4, q4);
-    Vec3 k4_w = ang_accel(w4);
+    Vec3 k4_v = translational_accel(m_end, r4, v4, q4, thrust_body);
+    Vec3 k4_w = ang_accel(w4, I, net_torque);
     Quat k4_q = quat_deriv(q4, w4);
 
     ////////////////////////////////////
@@ -445,23 +453,34 @@ void Rocket::update_dynamics(double current_time) {
     s.m_fuel -= mdot * dt;
     if (s.m_fuel <= 0) { s.m_fuel = 0; s.thrust = 0; }
 
-    // calculate final accelerations
-    double m_end = m - mdot * dt;
-    a_spec = rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end);
-    a = calc_gravity_accel(r) + a_spec;
-    altitude = r.norm() - EARTH_RADIUS;
-
     // keep rocket from falling through the earth
-    double alt_eci = r.norm();
-    if (alt_eci <= topo->kMaxElevation + EARTH_RADIUS) {
-        double surface_alt_eci = topo->SurfaceRadius3D(eci_to_ecef(r, current_time));
-        if (alt_eci < surface_alt_eci) {
+    bool on_ground = false;
+    double t_end = current_time + dt;
+    if (r_norm <= topo->kMaxElevation + EARTH_RADIUS) {
+        double surface_r = topo->SurfaceRadius3D(eci_to_ecef(r, t_end));
+        if (r_norm < surface_r) {
             Vec3 r_hat = r.normalized();
-            r = r_hat * surface_alt_eci;
+            r = r_hat * surface_r;
             v = surface_velocity_eci(r) + r_hat * std::max(v.dot(r_hat), 0.0); // if touching ground move iwth earth spin
+            on_ground = true;
         }
     }
+    altitude = r.norm() - EARTH_RADIUS;
 
+    // calculate final accelerations
+    Vec3 g_end = calc_gravity_accel(r);
+    if (on_ground) {
+        // the ground supplies whatever force keeps the rocket riding along with the surface
+        Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
+        a = w_earth.cross(w_earth.cross(r));
+        w = rotate_by_quat(q_rocket.conjugate(), w_earth);
+    }
+    else {
+        a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end);
+    }
+
+    // accelerometer measures everything except gravity, in the body frame
+    a_spec = rotate_by_quat(q_rocket.conjugate(), a - g_end);
 }
 
 // updates the fuel mass based on the current rocket states
@@ -557,7 +576,8 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     };
     Vec3 up = {0, 0, 1}; // since +z is up
     Vec3 rotation_axis = up.cross(unit_vec_from_center);
-    Vec3 rot_axis_u = rotation_axis / rotation_axis.norm();
+    double axis_norm = rotation_axis.norm();
+    Vec3 rot_axis_u = axis_norm > 1e-12 ? rotation_axis / axis_norm : Vec3{1, 0, 0}; 
 
     double half_theta = acos(sin(lat)) / 2;
     Quat q = {
@@ -570,4 +590,10 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     // set the oritnetaion of the rocket to normal the surface
     set_orientation(q);
     start_state.origin_q_eci = q;
+
+    // sitting on the pad
+    Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
+    w = rotate_by_quat(q.conjugate(), w_earth);
+    a = w_earth.cross(w_earth.cross(origin_pos));
+    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos));
 }
