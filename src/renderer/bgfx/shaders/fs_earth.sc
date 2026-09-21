@@ -1,4 +1,4 @@
-$input v_texcoord0, v_wpos, v_objpos
+$input v_texcoord0, v_wpos, v_local, v_logz
 
 #include <bgfx_shader.sh>
 
@@ -7,43 +7,16 @@ SAMPLER2D(s_bump,  1);   // height / relief
 SAMPLER2D(s_night, 2);   // city lights
 SAMPLER2D(s_rough, 3);   // roughness (low over water -> glossy ocean glint)
 SAMPLER2D(s_cloud, 4);   // cloud cover (for cloud shadows on the ground)
+SAMPLER2D(s_detail, 5);  // tileable ground detail (TerrainDetail): r soil/veg, g rock, b sand, a snow
 uniform vec4 u_sunDir;       // xyz: view-space direction TO the sun
 uniform vec4 u_earthCenter;  // xyz: view-space sphere centre (km)
 uniform vec4 u_camPos;       // xyz: view-space camera (km)
-
-// --- cheap 3D gradient noise + fBm, for procedural surface-detail amplification.
-// The base maps top out at ~1.2 km/texel, so anything finer than that is invented
-// here (keyed off the real height map) and only shown up close.
-vec3 hash33(vec3 p) {
-    p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
-             dot(p, vec3(269.5, 183.3, 246.1)),
-             dot(p, vec3(113.5, 271.9, 124.6)));
-    return fract(sin(p) * 43758.5453123) * 2.0 - 1.0;
-}
-// Periodic gradient noise: wrapping the integer lattice with mod(period) keeps the
-// hash inputs small, so float precision holds even though the domain is a body-fixed
-// planet coordinate of ~1e7 magnitude. That body-fixed (frame-invariant) domain is
-// what stops the detail from swimming as the camera and Earth move; the price is
-// repetition every `period` cells, set large enough not to be noticeable.
-float gnoise(vec3 p, float period) {
-    vec3 i = floor(p), f = fract(p);
-    vec3 u = f*f*(3.0 - 2.0*f);
-    vec3 a = mod(i,        period);   // cell corners, wrapped to [0,period)
-    vec3 b = mod(i + 1.0,  period);
-    return mix(mix(mix(dot(hash33(vec3(a.x,a.y,a.z)), f-vec3(0,0,0)),
-                       dot(hash33(vec3(b.x,a.y,a.z)), f-vec3(1,0,0)), u.x),
-                   mix(dot(hash33(vec3(a.x,b.y,a.z)), f-vec3(0,1,0)),
-                       dot(hash33(vec3(b.x,b.y,a.z)), f-vec3(1,1,0)), u.x), u.y),
-               mix(mix(dot(hash33(vec3(a.x,a.y,b.z)), f-vec3(0,0,1)),
-                       dot(hash33(vec3(b.x,a.y,b.z)), f-vec3(1,0,1)), u.x),
-                   mix(dot(hash33(vec3(a.x,b.y,b.z)), f-vec3(0,1,1)),
-                       dot(hash33(vec3(b.x,b.y,b.z)), f-vec3(1,1,1)), u.x), u.y), u.z);
-}
-float fbm3(vec3 p) {
-    float f = 0.0, a = 0.5, period = 512.0;
-    for (int k = 0; k < 4; k++) { f += a * gnoise(p, period); p *= 2.0; a *= 0.5; period *= 2.0; }
-    return f;
-}
+uniform vec4 u_depth;        // x: far plane (logarithmic depth)
+uniform vec4 u_detail[4];    // per detail layer, coarse -> fine: xyz chunk anchor in tiles
+                             // (wrapped to [0,1)), w: 1/period (1/m). v_local is the
+                             // body-frame offset (m) from that anchor (see vs_terrain).
+uniform vec4 u_detailMask;   // per chunk: xyz 1 = that triplanar projection has weight
+                             // here, w = number of detail layers still visible here
 
 // Smooth (B-spline) bicubic upsample in 4 bilinear taps. Magnifying the single
 // global map with hardware bilinear shows hard texel cells; this rounds them off
@@ -76,6 +49,36 @@ vec3 texBicubic(sampler2D tex, vec2 uv, vec2 texSize) {
     return mix(mix(s3, s2, sx), mix(s1, s0, sx), sy);
 }
 
+// Triplanar sample of the detail texture at p (tiles) with weights w. Projections
+// are skipped per *chunk* (u_detailMask), never per pixel: the branch is uniform
+// across the draw, so the fetches keep implicit derivatives and anisotropic
+// filtering. (texture2DGrad would allow per-pixel skips, but bgfx's GLSL 1.x
+// path emits it as an undefined textureGradARB.)
+vec4 detailTriplanar(vec3 p, vec3 w) {
+    vec4  acc = vec4_splat(0.0);
+    float ws  = 0.0;
+    if (u_detailMask.x > 0.5) { acc += w.x * texture2D(s_detail, p.yz); ws += w.x; }
+    if (u_detailMask.y > 0.5) { acc += w.y * texture2D(s_detail, p.zx); ws += w.y; }
+    if (u_detailMask.z > 0.5) { acc += w.z * texture2D(s_detail, p.xy); ws += w.z; }
+    return acc / max(ws, 1e-4);
+}
+
+// Weights (sum 1) of the four detail materials -- soil/vegetation, rock, sand,
+// snow, matching s_detail's channels -- guessed from the global albedo and the
+// local macro slope. Soil/vegetation is the default; the others need evidence.
+vec4 groundMaterials(vec3 albedo, float slope) {
+    float luma = dot(albedo, vec3(0.299, 0.587, 0.114));
+    float mx   = max(albedo.r, max(albedo.g, albedo.b));
+    float mn   = min(albedo.r, min(albedo.g, albedo.b));
+    float sat  = (mx - mn) / max(mx, 1e-3);
+    float snow = smoothstep(0.45, 0.65, luma) * (1.0 - smoothstep(0.12, 0.25, sat));
+    float sand = smoothstep(0.3, 0.45, luma) * smoothstep(0.08, 0.16, albedo.r - albedo.b) * (1.0 - snow);
+    float rock = smoothstep(0.08, 0.3, slope) * (1.0 - snow);
+    float soil = max(1.0 - snow - sand - rock, 0.0) + 0.05;
+    vec4  m    = vec4(soil, rock, sand, snow);
+    return m / dot(m, vec4_splat(1.0));
+}
+
 void main() {
     vec3 N = normalize(v_wpos - u_earthCenter.xyz);
     vec3 L = normalize(u_sunDir.xyz);
@@ -97,45 +100,60 @@ void main() {
 
     vec3  albedo = texture2D(s_color, v_texcoord0).xyz;
 
-    // Procedural detail amplification: close to the surface the maps are far too
-    // coarse (~1.2 km/texel, ~20 km/quad), so (1) de-block the magnified base map
-    // with a smooth bicubic upsample and (2) synthesise high-frequency relief and
-    // ground texture that isn't in the data. All faded in by camera proximity so
-    // orbit views never shimmer. This perturbs the *shading* normal and albedo
-    // only -- the geometry stays smooth (real geometry LOD is a later phase).
+    // --- Near-surface detail: the KSP-style near/far texture swap. The global maps
+    // top out at ~1.2 km/texel, so as the camera closes in (1) the magnified base
+    // map is de-blocked with a smooth bicubic upsample and (2) tiling detail layers
+    // fade in one after another (TerrainDetail::kLayerPeriod: 4 km .. 8 m), each
+    // while it still spans more than a few pixels. What they show is chosen per
+    // pixel from what the global maps say is there (vegetation / rock / sand / snow).
+    // Shading only (albedo + normal): the geometry stays the sim's ground.
     float distSurf = length(u_camPos.xyz - v_wpos);          // km to this point
-    float detail   = smoothstep(200.0, 5.0, distSurf);       // 0 far .. 1 near
-    if (detail > 0.001) {
-        // Smooth out the blocky magnified texture (blend in only as we approach).
-        albedo = mix(albedo, texBicubic(s_color, v_texcoord0, vec2(32768.0, 16384.0)), detail);
+    float near     = smoothstep(200.0, 5.0, distSurf);       // 0 far .. 1 near
+    if (near > 0.001)
+        albedo = mix(albedo, texBicubic(s_color, v_texcoord0, vec2(32768.0, 16384.0)), near);
 
-        float hC   = texture2D(s_bump, v_texcoord0).x;
-        float land = smoothstep(0.0008, 0.02, hC);           // oceans stay smooth
-        float amp  = detail * land;
-        if (amp > 0.001) {
-            // Noise domain is the body-fixed (object-space) position, so the pattern
-            // is locked to the planet and does not swim as the camera/Earth move. The
-            // periodic gnoise keeps precision at this large magnitude. Gradient is
-            // taken along object-space tangents and applied to the view-space normal
-            // (the two east/north frames describe the same physical directions).
-            vec3  Nobj  = normalize(v_objpos);
-            vec3  oEast = normalize(cross(vec3(0.0, 0.0, 1.0), Nobj));  // body +Z = north pole
-            vec3  oNorth= cross(Nobj, oEast);
-            vec3  P     = v_objpos * 0.0033;                  // ~0.3 km base features
-            float e     = 0.4;                                // finite-difference step
-            float macro = fbm3(P * 0.15);                     // ~2 km patches
-            float n0    = fbm3(P);
-            float nf    = fbm3(P * 4.7);                      // fine grain
-            float se    = fbm3(P + oEast  * e) - n0;
-            float sn    = fbm3(P + oNorth * e) - n0;
-            // Fake fine relief by tilting the shading normal along the noise gradient.
-            Np = normalize(Np - (east*se + north*sn) * 2.2 * amp);
-            // Multi-scale brightness break-up (keeps local hue) so the ground reads as
-            // textured terrain across scales instead of one muddy colour.
-            float v = macro * 0.5 + n0 * 0.35 + nf * 0.15;
-            albedo  = max(albedo * (1.0 + v * 0.38 * amp), vec3(0.0));
+    // Screen derivatives for the bump, taken in uniform control flow.
+    vec3 px = dFdx(v_wpos), py = dFdy(v_wpos);
+
+    float hC    = texture2D(s_bump, v_texcoord0).x;
+    float land  = smoothstep(0.0008, 0.02, hC);              // oceans stay smooth
+    float slope = length(vec2(hL - hR, hD - hU)) * (8849.0 / (8.0 * 1223.0));  // rise/run, 8-texel span
+    vec4  mat   = groundMaterials(albedo, slope);
+
+    // Triplanar weights from the body-frame normal (view -> body is (x,-z,y)),
+    // sharpened so one projection dominates almost everywhere.
+    vec3 nb = vec3(N.x, -N.z, N.y);
+    vec3 tw = nb * nb; tw = tw * tw; tw = tw * tw;
+    tw /= dot(tw, vec3_splat(1.0));
+
+    // Layers fade in from 40 to 10 periods away (TerrainDetail::kFadeStart).
+    float distM  = distSurf * 1000.0;
+    float tone   = 0.0;       // albedo modulation
+    float relief = 0.0;       // synthetic relief height (km), shading only
+    for (int k = 0; k < 4; k++) {
+        if (float(k) < u_detailMask.w) {
+            vec4  layer = u_detail[k];
+            float wk    = smoothstep(40.0, 10.0, distM * layer.w) * land;
+            vec3  p     = layer.xyz + v_local * layer.w;      // position in tiles
+            float sig   = dot(detailTriplanar(p, tw), mat) - 0.5;
+            tone   += wk * sig;
+            relief += wk * sig * (0.008 / layer.w) * 0.001;   // relief ~1% of the period
         }
     }
+    float contrast = dot(mat, vec4(0.9, 0.75, 0.45, 0.2));   // per-material albedo contrast
+    albedo = max(albedo * (1.0 + tone * 1.2 * contrast), vec3_splat(0.0));
+
+    // Bump from the synthetic relief (Mikkelsen, "Bump Mapping Unparametrized
+    // Surfaces on the GPU"): the screen-space height gradient tilts the normal
+    // with no tangent frame needed. relief is 0 where no layer is active.
+    float rx  = dFdx(relief), ry = dFdy(relief);
+    vec3  r1  = cross(py, N);
+    vec3  r2  = cross(N, px);
+    float det = dot(px, r1);
+    // Only where the surface faces along N: on a steep face (a skirt wall) det
+    // tends to 0 and the formula blows up.
+    if (abs(det) > 0.2 * length(px) * length(py))
+        Np = normalize(abs(det) * Np - sign(det) * (rx * r1 + ry * r2));
 
     float lit    = max(dot(Np, L), 0.0);                 // relief shading
     float term   = dot(N, L);                            // smooth terminator
@@ -193,4 +211,7 @@ void main() {
     vec3 color = mix(night, day, t);                     // blend across the twilight band
 
     gl_FragColor = vec4(color, 1.0);
+    // Per-fragment logarithmic depth (see vs_terrain): same mapping as the
+    // per-vertex log depth of the other shaders, in [0,1] window depth.
+    gl_FragDepth = log2(max(1e-6, v_logz)) / log2(u_depth.x + 1.0);
 }

@@ -21,7 +21,7 @@ Rocket::~Rocket() {
 RocketState Rocket::get_state() const {
     double length = 0;
     for (int i = active_idx; i < num_stages(); i++) length += props.stages[i].tip_to_end_length;
-    double s_engine = active().tip_to_end_length - active().engine_distance;
+    double s_engine = active_stage().tip_to_end_length - active_stage().engine_distance;
 
     RocketState s;
     s.r           = r;
@@ -49,7 +49,7 @@ RocketState Rocket::get_state() const {
  * hands the sensors to whatever thing implements fc_api.h and applies what it asked for
  */
 void Rocket::update_flight_controller(double current_time) {
-    if (pending_cutoff) { active().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
+    if (pending_cutoff) { active_stage().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
 
     fc_bind::begin(this, &fc_cmd);
 
@@ -142,8 +142,8 @@ bool Rocket::advance_stage() {
  */
 void Rocket::light_engine() {
     if (engine_locked) return; // motor was cut off and cannot be relit on this stage
-    if (active().m_fuel > 0) {
-        active().thrust = active().max_thrust;
+    if (active_stage().m_fuel > 0) {
+        active_stage().thrust = active_stage().max_thrust;
     }
 }
 
@@ -151,7 +151,7 @@ void Rocket::light_engine() {
  * permanently terminates thrust on the active stage, kills motor real dead
  */
 void Rocket::cutoff_engine() {
-    active().thrust = 0;
+    active_stage().thrust = 0;
     engine_locked = true;
 }
 
@@ -164,7 +164,7 @@ void Rocket::cutoff_engine() {
 void Rocket::command_final_burn_fraction(double fraction) {
     if (engine_locked) return;
     fraction = std::clamp(fraction, 0.0, 1.0);
-    active().thrust = fraction * active().max_thrust;
+    active_stage().thrust = fraction * active_stage().max_thrust;
     engine_locked = true;  // no relight
     pending_cutoff = true; // thrust zeroed at the start of the next step
 }
@@ -176,9 +176,9 @@ void Rocket::command_final_burn_fraction(double fraction) {
 void Rocket::rcs_apply_const_moment(Vec3 m) {
     Vec3 applied_moment = m;
     // cap moments
-    applied_moment.x = std::clamp(m.x, -active().rcs_max_capable_moment.x, active().rcs_max_capable_moment.x);
-    applied_moment.y = std::clamp(m.y, -active().rcs_max_capable_moment.y, active().rcs_max_capable_moment.y);
-    applied_moment.z = std::clamp(m.z, -active().rcs_max_capable_moment.z, active().rcs_max_capable_moment.z);
+    applied_moment.x = std::clamp(m.x, -active_stage().rcs_max_capable_moment.x, active_stage().rcs_max_capable_moment.x);
+    applied_moment.y = std::clamp(m.y, -active_stage().rcs_max_capable_moment.y, active_stage().rcs_max_capable_moment.y);
+    applied_moment.z = std::clamp(m.z, -active_stage().rcs_max_capable_moment.z, active_stage().rcs_max_capable_moment.z);
     applied_rcs_moment = applied_moment; // apply moment to apply_rcs_moment
 }
 
@@ -211,7 +211,7 @@ Vec3 Rocket::nose_direction_eci() {
  */
 Vec3 Rocket::engine_thrust_body(double thrust_scale) const {
     Vec3 nose_body = {0, 0, 1};
-    return rotate_by_quat(q_engine, nose_body) * (active().thrust * thrust_scale);
+    return rotate_by_quat(q_engine, nose_body) * (active_stage().thrust * thrust_scale);
 }
 
 /**
@@ -222,7 +222,7 @@ Vec3 Rocket::net_body_torque(double thrust_scale) const {
     Vec3 net_torque = {0, 0, 0};
 
     // lever arm from the combined CoM to the engine along the body axis
-    double s_engine = active().tip_to_end_length - active().engine_distance;
+    double s_engine = active_stage().tip_to_end_length - active_stage().engine_distance;
     Vec3 r_engine = {0, 0, s_engine - z_cm};
 
     net_torque += r_engine.cross(engine_thrust_body(thrust_scale));
@@ -302,14 +302,14 @@ static void atmosphere(double altitude, double& air_density, double& air_pressur
 // acceleration due to drag in the ECI frame
 Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, double mass) {
     double air_density, air_pressure;
-    atmosphere(r.norm() - EARTH_RADIUS, air_density, air_pressure);
+    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure);
 
     // wind of earth spinning
     Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
     Vec3 v_air = w_earth.cross(r);
     Vec3 v_relative = v - v_air;
 
-    double craft_speed = v_relative.norm();
+    double craft_speed = v_relative.mag();
     if (craft_speed < 1e-6) return {0, 0, 0}; // no airspeed
 
     // calcualte the aoa entering into the atmosphere
@@ -353,7 +353,7 @@ void Rocket::update_dynamics(double current_time) {
     double dt = TIME_STEP;
 
     // propellant drain
-    Stage& s = active();
+    Stage& s = active_stage();
     double mdot = s.mass_flow_rate();
     double burn_frac = 1.0; // fraction of the step the remaining propellant lasts
     if (mdot * dt > s.m_fuel) {
@@ -363,7 +363,7 @@ void Rocket::update_dynamics(double current_time) {
 
     // adjust thrust for isp change
     double air_density, air_pressure;
-    atmosphere(r.norm() - EARTH_RADIUS, air_density, air_pressure);
+    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure);
     double thrust_scale;
     if (s.isp > 0) {
         thrust_scale = s.isp_at(air_pressure) / s.isp;
@@ -454,18 +454,42 @@ void Rocket::update_dynamics(double current_time) {
     if (s.m_fuel <= 0) { s.m_fuel = 0; s.thrust = 0; }
 
     // keep rocket from falling through the earth
+    // this uses z_cm instead of r because it ensures the rocket doesnt go below the surface!
     bool on_ground = false;
+    Vec3 v_pre_contact = v;
     double t_end = current_time + dt;
-    if (r_norm <= topo->kMaxElevation + EARTH_RADIUS) {
+    double r_norm = r.mag();
+
+    // find how high the CoM is from the ground based on the angle between the rockets position in ecef and its orientation
+    Vec3 rocket_nose_dir_ecef = eci_to_ecef(nose_from_quat(q_rocket), t_end);
+    Vec3 r_ecef = eci_to_ecef(r, t_end);
+    double cos_angle_to_gnd = r_ecef.dot(rocket_nose_dir_ecef) / (rocket_nose_dir_ecef.mag() * r_ecef.mag());
+
+    // whichever end sits lower touches the ground, and the body radius lifts the CoM when it isnt vertical
+    double rocket_length = 0;
+    for (int i = active_idx; i < num_stages(); i++) {
+        rocket_length += props.stages[i].tip_to_end_length;
+    }
+    double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
+    double rocket_height_component = std::max
+                (
+                z_cm * cos_angle_to_gnd, // OR
+                -(rocket_length - z_cm) * cos_angle_to_gnd
+                )
+
+                + props.radius * sin_angle_to_gnd;
+
+    if (r_norm - rocket_height_component <= topo->kMaxElevation + EARTH_RADIUS) {
         double surface_r = topo->SurfaceRadius3D(eci_to_ecef(r, t_end));
-        if (r_norm < surface_r) {
-            Vec3 r_hat = r.normalized();
-            r = r_hat * surface_r;
+        if (r_norm - rocket_height_component < surface_r) {
+            Vec3 r_hat = r.unit();
+            r = r_hat * (surface_r + rocket_height_component);
+            v_pre_contact = v;
             v = surface_velocity_eci(r) + r_hat * std::max(v.dot(r_hat), 0.0); // if touching ground move iwth earth spin
             on_ground = true;
         }
     }
-    altitude = r.norm() - EARTH_RADIUS;
+    altitude = r.mag() - EARTH_RADIUS;
 
     // calculate final accelerations
     Vec3 g_end = calc_gravity_accel(r);
@@ -473,7 +497,30 @@ void Rocket::update_dynamics(double current_time) {
         // the ground supplies whatever force keeps the rocket riding along with the surface
         Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
         a = w_earth.cross(w_earth.cross(r));
-        w = rotate_by_quat(q_rocket.conjugate(), w_earth);
+
+        Vec3 nose_eci = nose_from_quat(q_rocket);
+        Vec3 r_contact_from_cm;
+        if (cos_angle_to_gnd >= 0.0) {
+            r_contact_from_cm = nose_eci * -z_cm;
+        }
+        else {
+            r_contact_from_cm = nose_eci * (rocket_length - z_cm);
+        }
+        Vec3 down_perp = nose_eci * cos_angle_to_gnd - r.unit();
+        if (down_perp.mag() > 1e-9) {
+            r_contact_from_cm += down_perp * (props.radius / down_perp.mag());
+        }
+
+        // the impulse the ground applied at the contact point this step spins the rocket about its CoM
+        Vec3 impulse_from_gnd = (v - v_pre_contact) * m_end;
+        Vec3 ang_impulse_body = rotate_by_quat(q_rocket.conjugate(), r_contact_from_cm.cross(impulse_from_gnd));
+        w.x += ang_impulse_body.x / I.x;
+        w.y += ang_impulse_body.y / I.y;
+        w.z += ang_impulse_body.z / I.z;
+
+        // take away rotational energy
+        Vec3 w_earth_body = rotate_by_quat(q_rocket.conjugate(), w_earth);
+        w = w_earth_body + (w - w_earth_body) * exp(-dt / 0.9);
     }
     else {
         a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end);
@@ -524,7 +571,7 @@ void Rocket::set_engine_orientation(Quat orientation) {
     orientation.z /= norm;
 
     double angle = 2.0 * std::acos(std::max(-1.0, std::min(1.0, orientation.w)));
-    double max_angle = active().engine_gimball_range * M_PI / 180.0;
+    double max_angle = active_stage().engine_gimball_range * M_PI / 180.0;
 
     if (angle <= max_angle) {
         q_engine = orientation;
@@ -576,7 +623,7 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     };
     Vec3 up = {0, 0, 1}; // since +z is up
     Vec3 rotation_axis = up.cross(unit_vec_from_center);
-    double axis_norm = rotation_axis.norm();
+    double axis_norm = rotation_axis.mag();
     Vec3 rot_axis_u = axis_norm > 1e-12 ? rotation_axis / axis_norm : Vec3{1, 0, 0}; 
 
     double half_theta = acos(sin(lat)) / 2;

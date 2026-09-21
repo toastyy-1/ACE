@@ -65,7 +65,7 @@ void fc_detonate(void) {
 }
 
 int fc_active_stage(void) {
-    return g_rocket ? g_rocket->active_stage() : 0;
+    return g_rocket ? g_rocket->active_stage_idx() : 0;
 }
 
 } // extern "C"

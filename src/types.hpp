@@ -21,10 +21,10 @@ struct Vec3 {
     Vec3   cross(const Vec3& o) const {
         return {y*o.z - z*o.y, z*o.x - x*o.z, x*o.y - y*o.x};
     }
-    double norm() const { return std::sqrt(x*x + y*y + z*z); }
-    Vec3 normalized() const {
-        double mag = norm();
-        return {x / mag, y / mag, z / mag};
+    double mag() const { return std::sqrt(x*x + y*y + z*z); }
+    Vec3 unit() const {
+        double m = mag();
+        return {x / m, y / m, z / m};
     }
 };
 

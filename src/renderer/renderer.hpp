@@ -67,8 +67,14 @@ private:
     // (north) to view +Y (up) as a proper rotation (det +1), so winding/normals
     // survive. Must match rmath::viewBasis exactly.
     RVec3 ToView(const Vec3& eci_m) const {
+        Vec3 v = ToViewKm(eci_m);
+        return { float(v.x), float(v.y), float(v.z) };
+    }
+    // ToView kept in double, for the few consumers that need more than float
+    // precision at planet scale (the terrain's chunk anchors).
+    Vec3 ToViewKm(const Vec3& eci_m) const {
         Vec3 d = eci_m - p_ref_eci_;
-        return { float(d.x * M_TO_KM), float(d.z * M_TO_KM), float(-d.y * M_TO_KM) };
+        return { d.x * M_TO_KM, d.z * M_TO_KM, -d.y * M_TO_KM };
     }
 
     // The scene is shifted so this point (the primary rocket's ECI position) sits

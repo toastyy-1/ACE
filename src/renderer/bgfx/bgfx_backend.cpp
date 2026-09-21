@@ -10,13 +10,12 @@
 #endif
 
 #include "bgfx_backend.hpp"
+#include "bgfx_util.hpp"
 #include "../geometry.hpp"
 #include "../../constants.hpp"
 
 #include <bgfx/platform.h>
 #include <bx/math.h>
-#include <bx/allocator.h>
-#include <bimg/decode.h>
 
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
@@ -35,7 +34,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
-#include <fstream>
 #include <vector>
 
 #define STB_EASY_FONT_IMPLEMENTATION
@@ -48,8 +46,6 @@
 namespace renderer {
 
 namespace {
-
-bx::DefaultAllocator s_allocator;
 
 // --- Greek-capable glyph atlas (stb_truetype) -------------------------------
 // Baked once from the bundled TTF into a single bgfx texture. Covers ASCII
@@ -81,15 +77,8 @@ void ensureGlyphFont() {
     if (g_font.tried) return;
     g_font.tried = true;
 
-    std::vector<uint8_t> ttf;
-    {
-        std::ifstream f(kFontPath, std::ios::binary | std::ios::ate);
-        if (!f) { std::fprintf(stderr, "bgfx: font %s missing; ASCII fallback\n", kFontPath); return; }
-        std::streamsize n = f.tellg();
-        f.seekg(0);
-        ttf.resize((size_t)n);
-        f.read((char*)ttf.data(), n);
-    }
+    std::vector<uint8_t> ttf = bgfxutil::readFile(kFontPath);
+    if (ttf.empty()) { std::fprintf(stderr, "bgfx: font %s missing; ASCII fallback\n", kFontPath); return; }
 
     g_font.ascii.resize(GlyphFont::kAsciiCount);
     g_font.greek.resize(GlyphFont::kGreekCount);
@@ -140,23 +129,6 @@ void ensureGlyphFont() {
 
 uint32_t packRgba(RColor c) {
     return (uint32_t(c.r) << 24) | (uint32_t(c.g) << 16) | (uint32_t(c.b) << 8) | uint32_t(c.a);
-}
-
-std::vector<uint8_t> readFile(const char* path) {
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) return {};
-    std::streamsize n = f.tellg();
-    f.seekg(0);
-    std::vector<uint8_t> buf((size_t)n);
-    f.read((char*)buf.data(), n);
-    return buf;
-}
-
-bgfx::ShaderHandle loadShaderFile(const char* path) {
-    std::vector<uint8_t> data = readFile(path);
-    if (data.empty()) { std::fprintf(stderr, "bgfx: missing shader %s\n", path); return BGFX_INVALID_HANDLE; }
-    const bgfx::Memory* mem = bgfx::copy(data.data(), (uint32_t)data.size());
-    return bgfx::createShader(mem);
 }
 
 // A view-space direction/point as a vec4 for a bgfx uniform.
@@ -268,23 +240,12 @@ void BgfxBackend::Init(int width, int height, const char* title) {
         .add(bgfx::Attrib::Color0,    4, bgfx::AttribType::Uint8, true)
         .end();
 
-    generic_   = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_generic.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_generic.bin"), true);
-    earthProg_ = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_earth.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_earth.bin"), true);
-    cloudProg_ = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_cloud.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_cloud.bin"), true);
-    // Terrain LOD patch reuses the earth fragment shader, so it shades identically.
-    patchProg_ = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_patch.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_earth.bin"), true);
-    atmosProg_ = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_atmos.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_atmos.bin"), true);
-    flareProg_ = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_flare.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_flare.bin"), true);
-    rocketProg_ = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_rocket.bin"),
-                                      loadShaderFile("src/renderer/bgfx/shaders/fs_rocket.bin"), true);
-    heatProg_  = bgfx::createProgram(loadShaderFile("src/renderer/bgfx/shaders/vs_heat.bin"),
-                                     loadShaderFile("src/renderer/bgfx/shaders/fs_heat.bin"), true);
+    generic_    = bgfxutil::loadProgram("vs_generic", "fs_generic");
+    cloudProg_  = bgfxutil::loadProgram("vs_cloud",   "fs_cloud");
+    atmosProg_  = bgfxutil::loadProgram("vs_atmos",   "fs_atmos");
+    flareProg_  = bgfxutil::loadProgram("vs_flare",   "fs_flare");
+    rocketProg_ = bgfxutil::loadProgram("vs_rocket",  "fs_rocket");
+    heatProg_   = bgfxutil::loadProgram("vs_heat",    "fs_heat");
 
     s_tex_         = bgfx::createUniform("s_tex",        bgfx::UniformType::Sampler);
     u_tint_        = bgfx::createUniform("u_tint",       bgfx::UniformType::Vec4);
@@ -293,14 +254,11 @@ void BgfxBackend::Init(int width, int height, const char* title) {
     u_heat_        = bgfx::createUniform("u_heat",       bgfx::UniformType::Vec4);
     u_earth_       = bgfx::createUniform("u_earth",      bgfx::UniformType::Vec4);
     s_color_       = bgfx::createUniform("s_color",      bgfx::UniformType::Sampler);
-    s_bump_        = bgfx::createUniform("s_bump",       bgfx::UniformType::Sampler);
     s_night_       = bgfx::createUniform("s_night",      bgfx::UniformType::Sampler);
     s_emiss_       = bgfx::createUniform("s_emiss",      bgfx::UniformType::Sampler);
-    s_rough_       = bgfx::createUniform("s_rough",      bgfx::UniformType::Sampler);
     u_sunDir_      = bgfx::createUniform("u_sunDir",     bgfx::UniformType::Vec4);
     u_earthCenter_ = bgfx::createUniform("u_earthCenter",bgfx::UniformType::Vec4);
     u_camPos_      = bgfx::createUniform("u_camPos",     bgfx::UniformType::Vec4);
-    u_dispScale_   = bgfx::createUniform("u_dispScale",  bgfx::UniformType::Vec4);
     s_cloud_       = bgfx::createUniform("s_cloud",      bgfx::UniformType::Sampler);
     u_cloudAlpha_  = bgfx::createUniform("u_cloudAlpha", bgfx::UniformType::Vec4);
     u_cloudDisp_   = bgfx::createUniform("u_cloudDisp",  bgfx::UniformType::Vec4);
@@ -308,11 +266,6 @@ void BgfxBackend::Init(int width, int height, const char* title) {
     u_rayFwd_      = bgfx::createUniform("u_rayFwd",     bgfx::UniformType::Vec4);
     u_rayRight_    = bgfx::createUniform("u_rayRight",   bgfx::UniformType::Vec4);
     u_rayUp_       = bgfx::createUniform("u_rayUp",      bgfx::UniformType::Vec4);
-    u_patchC_      = bgfx::createUniform("u_patchC",     bgfx::UniformType::Vec4);
-    u_patchE_      = bgfx::createUniform("u_patchE",     bgfx::UniformType::Vec4);
-    u_patchN_      = bgfx::createUniform("u_patchN",     bgfx::UniformType::Vec4);
-    u_patchCam_    = bgfx::createUniform("u_patchCam",   bgfx::UniformType::Vec4);
-    u_patchTrue_   = bgfx::createUniform("u_patchTrue",  bgfx::UniformType::Vec4);
 
     const uint8_t whitePix[4] = { 255, 255, 255, 255 };
     white_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, 0,
@@ -324,6 +277,7 @@ void BgfxBackend::Init(int width, int height, const char* title) {
 void BgfxBackend::Shutdown() {
     for (auto& m : meshes_) { if (bgfx::isValid(m.vbh)) bgfx::destroy(m.vbh); if (bgfx::isValid(m.ibh)) bgfx::destroy(m.ibh); }
     for (auto& t : textures_) if (bgfx::isValid(t)) bgfx::destroy(t);
+    terrain_.Destroy();
     if (bgfx::isValid(earthColor_)) bgfx::destroy(earthColor_);
     EarthBumpMap::Get().Destroy();
     if (bgfx::isValid(earthNight_)) bgfx::destroy(earthNight_);
@@ -334,18 +288,15 @@ void BgfxBackend::Shutdown() {
     if (bgfx::isValid(g_font.atlas)) { bgfx::destroy(g_font.atlas); g_font.atlas = BGFX_INVALID_HANDLE; }
     g_font.ready = false; g_font.tried = false;   // allow a fresh bake if re-Init'd
     if (bgfx::isValid(generic_))    bgfx::destroy(generic_);
-    if (bgfx::isValid(earthProg_))  bgfx::destroy(earthProg_);
     if (bgfx::isValid(cloudProg_))  bgfx::destroy(cloudProg_);
-    if (bgfx::isValid(patchProg_))  bgfx::destroy(patchProg_);
     if (bgfx::isValid(atmosProg_))  bgfx::destroy(atmosProg_);
     if (bgfx::isValid(flareProg_))  bgfx::destroy(flareProg_);
     if (bgfx::isValid(rocketProg_)) bgfx::destroy(rocketProg_);
     if (bgfx::isValid(heatProg_))   bgfx::destroy(heatProg_);
-    for (bgfx::UniformHandle u : { s_tex_, u_tint_, u_depth_, u_light_, u_heat_, u_earth_, s_color_, s_bump_, s_night_, s_rough_, s_emiss_,
-                                   u_sunDir_, u_earthCenter_, u_camPos_, u_dispScale_,
+    for (bgfx::UniformHandle u : { s_tex_, u_tint_, u_depth_, u_light_, u_heat_, u_earth_, s_color_, s_night_, s_emiss_,
+                                   u_sunDir_, u_earthCenter_, u_camPos_,
                                    s_cloud_, u_cloudAlpha_, u_cloudDisp_, u_atmos_,
-                                   u_rayFwd_, u_rayRight_, u_rayUp_,
-                                   u_patchC_, u_patchE_, u_patchN_, u_patchCam_, u_patchTrue_ })
+                                   u_rayFwd_, u_rayRight_, u_rayUp_ })
         if (bgfx::isValid(u)) bgfx::destroy(u);
     bgfx::shutdown();
     if (window_) glfwDestroyWindow(window_);
@@ -400,14 +351,8 @@ float  BgfxBackend::FrameTime() const { return (float)frameDt_; }
 double BgfxBackend::Time() const      { return glfwGetTime() - startTime_; }
 
 TextureHandle BgfxBackend::LoadTexture(const char* path) {
-    std::vector<uint8_t> data = readFile(path);
-    if (data.empty()) return 0;
-    bimg::ImageContainer* ic = bimg::imageParse(&s_allocator, data.data(), (uint32_t)data.size());
-    if (!ic) return 0;
-    bgfx::TextureHandle th = bgfx::createTexture2D(
-        (uint16_t)ic->m_width, (uint16_t)ic->m_height, ic->m_numMips > 1, ic->m_numLayers,
-        (bgfx::TextureFormat::Enum)ic->m_format, BGFX_SAMPLER_NONE, bgfx::copy(ic->m_data, ic->m_size));
-    bimg::imageFree(ic);
+    bgfx::TextureHandle th = bgfxutil::loadTexture(path, BGFX_SAMPLER_NONE);
+    if (!bgfx::isValid(th)) return 0;
     textures_.push_back(th);
     return (TextureHandle)textures_.size();
 }
@@ -585,47 +530,30 @@ void BgfxBackend::DrawRocket(const RocketFrame& f) {
 }
 
 void BgfxBackend::ensureEarth() {
-    if (earthMesh_) return;
+    if (cloudMesh_) return;
     // Half-turn: aligns the Greenwich-centred equirectangular map (u=0.5 -> 0 deg)
     // with the ECI frame the rocket is placed in, so launch sites land correctly
     // (e.g. Knoxville at -83.94 deg, not 108 deg E / China). Keep this in sync with
-    // the same offset hardcoded in fs_earth, fs_rocket and vs_patch.
+    // the same offset hardcoded in fs_earth, fs_rocket and vs_terrain.
     const float kLonOffset = 0.5f;
-    // High tessellation so vertex displacement has the resolution to show real
-    // relief. 2048 rings/sectors -> ~4.2M verts / ~25M tris, 32-bit indices.
-    earthMesh_  = CreateMesh(geom::buildSphere((float)EARTH_RADIUS, 2048, 2048, kLonOffset));
-    auto loadDDS = [&](const char* path) -> bgfx::TextureHandle {
-        std::vector<uint8_t> data = readFile(path);
-        if (data.empty()) { std::fprintf(stderr, "bgfx: missing %s\n", path); return BGFX_INVALID_HANDLE; }
-        bimg::ImageContainer* ic = bimg::imageParse(&s_allocator, data.data(), (uint32_t)data.size());
-        if (!ic) { std::fprintf(stderr, "bgfx: parse failed %s\n", path); return BGFX_INVALID_HANDLE; }
-        const uint64_t flags = BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;
-        bgfx::TextureHandle th = bgfx::createTexture2D(
-            (uint16_t)ic->m_width, (uint16_t)ic->m_height, ic->m_numMips > 1, ic->m_numLayers,
-            (bgfx::TextureFormat::Enum)ic->m_format, flags, bgfx::copy(ic->m_data, ic->m_size));
-        bimg::imageFree(ic);
-        return th;
-    };
-    earthColor_ = loadDDS("src/renderer/bgfx/Earth-Color-Map-32768x16384.dds");
+    const uint64_t kEarthFlags = BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;
+    earthColor_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Color-Map-32768x16384.dds", kEarthFlags);
     EarthBumpMap::Get().Load("src/renderer/bgfx/Earth-Bump-Map-32768x16384.dds");
-    earthNight_ = loadDDS("src/renderer/bgfx/Earth-Night-Map-32768x16384.dds");
-    earthEmiss_ = loadDDS("src/renderer/bgfx/Earth-Night-Emission-Map-32768x16384.dds");  // white = light source strength
-    earthCloud_ = loadDDS("src/renderer/bgfx/Earth-Cloud-Map-32768x16384.dds");
-    earthRough_ = loadDDS("src/renderer/bgfx/Earth-Roughness-Map-32768x16384.dds");
+    earthNight_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Night-Map-32768x16384.dds", kEarthFlags);
+    earthEmiss_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Night-Emission-Map-32768x16384.dds", kEarthFlags);  // white = light source strength
+    earthCloud_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Cloud-Map-32768x16384.dds", kEarthFlags);
+    earthRough_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Roughness-Map-32768x16384.dds", kEarthFlags);
 
     // Sphere for the cloud shells. Denser than a plain textured sphere would need
     // so the per-vertex noise displacement resolves smoothly. 32-bit indices.
     cloudMesh_  = CreateMesh(geom::buildSphere((float)EARTH_RADIUS, 512, 512, kLonOffset));
 
-    // Camera-following terrain LOD patch: a dense flat grid the vertex shader
-    // wraps onto the sphere under the camera and displaces at full map resolution.
-    patchMesh_  = CreateMesh(geom::buildGrid(192));
+    // The solid surface at every altitude: quadtree LOD terrain (see terrain.hpp).
+    terrain_.Init(layout_);
 }
 
 void BgfxBackend::DrawEarth(const EarthFrame& f) {
     ensureEarth();
-    if (earthMesh_ == 0) return;
-    const GpuMesh& g = meshes_[earthMesh_ - 1];
     sunDirView_ = f.sun_dir;   // cache for lit DrawModel (the rocket), drawn later
     camPosView_ = f.cam_pos;
     earthCenterView_ = f.center;
@@ -671,110 +599,24 @@ void BgfxBackend::DrawEarth(const EarthFrame& f) {
         bgfx::submit(0, atmosProg_);
     }
 
-    // Camera altitude (km). When low, the high-detail terrain patch REPLACES the
-    // global sphere as the surface (they're nearly coincident -- drawing both
-    // z-fights into noise), so decide before the earth draw whether to skip it.
+    // Camera altitude (km), for fading the cloud shells below.
     float dcx = f.cam_pos.x - f.center.x, dcy = f.cam_pos.y - f.center.y, dcz = f.cam_pos.z - f.center.z;
     float camAlt = sqrtf(dcx*dcx + dcy*dcy + dcz*dcz) - (float)EARTH_RADIUS_KM;
-    // Patch is the surface near the ground; by 90 km it has geomorphed (vs_patch's
-    // altitude LOD bias) down to the global sphere's resolution, so the handoff is
-    // seamless. Above that the global sphere takes over.
-    bool  patchActive = patchMesh_ && camAlt < 90.0f;
 
-    setVec4(u_sunDir_,      f.sun_dir);
-    setVec4(u_earthCenter_, f.center);
-    setVec4(u_camPos_,      f.cam_pos);
-    float disp[4] = { (float)EarthBumpMap::kMaxElevation, 0, 0, 0 };  // Everest above sea level (m)
-    bgfx::setUniform(u_dispScale_, disp);
+    // Solid surface: quadtree LOD chunks from orbit down to the ground, with
+    // distance-tiered detail texturing up close. See terrain.hpp.
+    {
+        const EarthTextures tex = {
+            bgfx::isValid(earthColor_) ? earthColor_ : white_,
+            bgfx::isValid(EarthBumpMap::Get().Texture()) ? EarthBumpMap::Get().Texture() : white_,
+            bgfx::isValid(earthNight_) ? earthNight_ : white_,
+            bgfx::isValid(earthRough_) ? earthRough_ : white_,
+            bgfx::isValid(earthCloud_) ? earthCloud_ : white_,
+        };
+        float aspect = height_ > 0 ? (float)width_ / (float)height_ : 1.0f;
+        terrain_.Draw(f, cam_, aspect, far_, tex, EarthBumpMap::Get().Width(), EarthBumpMap::Get().Height());
+    }
     float depth[4] = { far_, 0, 0, 0 };
-    bgfx::setUniform(u_depth_, depth);
-    bgfx::setTexture(0, s_color_, earthColor_);
-    bgfx::setTexture(1, s_bump_,  EarthBumpMap::Get().Texture());
-    bgfx::setTexture(2, s_night_, earthNight_);
-    bgfx::setTexture(3, s_rough_, earthRough_);
-    bgfx::setTexture(4, s_cloud_, earthCloud_);  // cloud shadows on the ground
-
-    if (!patchActive) {                          // global sphere = far field / high up
-        bgfx::setTransform(f.model.m);
-        bgfx::setVertexBuffer(0, g.vbh);
-        bgfx::setIndexBuffer(g.ibh);
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z
-                       | BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_CULL_CW);
-        bgfx::submit(0, earthProg_);
-    }
-
-    // --- Terrain LOD patch (near-surface): a density-graded cap that follows the
-    // camera, covering the visible ground to the horizon (dense underfoot, coarse
-    // toward the limb) and displacing the height map at full resolution. SOLE
-    // surface while active (no global sphere -> no z-fight), reuses fs_earth for
-    // identical shading, and built in a floating-origin frame so the fine geometry
-    // stays precise/stable at planet scale. See vs_patch.sc.
-    if (patchActive) {
-        const GpuMesh& pm = meshes_[patchMesh_ - 1];
-        float Rkm = (float)EARTH_RADIUS_KM;
-
-        // True sub-camera direction (view space) and altitude. These drive the
-        // floating-origin reconstruction in the shader, so they must stay exact.
-        RVec3 Cvt    = rmath::normalize(rmath::sub(f.cam_pos, f.center));
-        float altt   = fmaxf(camAlt, 0.02f);
-
-        // World-anchored cap: build the patch geometry from a sub-camera point that
-        // is SNAPPED to the height map's texel grid (and an altitude snapped to a
-        // geometric ladder), not from the live camera. The grid is camera-locked in
-        // *topology*, so without this its vertices slide across the height field as
-        // you move and the surface swims. Snapping freezes every vertex's world
-        // position for sub-texel camera motion (zero swim); on a texel crossing the
-        // cap shifts by exactly one texel of a texel-resolution field, which is
-        // imperceptible. The shader reconstructs wpos = center + dir*(R+disp) from
-        // the snapped dir, so it is independent of the true camera between snaps.
-        constexpr float kTexel    = 3.14159265f / 16384.0f;  // rad/texel (16384 rows over pi)
-        constexpr int   kSnapTex  = 1;                        // snap granularity, in texels
-        constexpr float kAltLadder = 0.06f;                  // altitude snap: ~4% geometric steps
-        const float snap = kSnapTex * kTexel;
-
-        // Snap the sub-camera point on the lon/colat grid (== the height-map grid).
-        // view->body is (x,-z,y) (inverse of viewBasis), matching vs_patch.
-        RVec3 bC   = { Cvt.x, -Cvt.z, Cvt.y };
-        float lon  = atan2f(bC.y, bC.x);
-        float cola = acosf(fmaxf(-1.0f, fminf(1.0f, bC.z)));
-        lon  = roundf(lon  / snap) * snap;
-        cola = roundf(cola / snap) * snap;
-        cola = fmaxf(snap, fminf(3.14159265f - snap, cola));
-        float sc = sinf(cola);
-        RVec3 bS = { sc * cosf(lon), sc * sinf(lon), cosf(cola) };
-        RVec3 Cv = { bS.x, bS.z, -bS.y };                    // snapped centre (view space)
-
-        // Snapped altitude (ceil to a geometric ladder so the cap is stable AND
-        // always over-covers the true horizon -- no limb gap).
-        float alts = (altt > 0.05f)
-                   ? exp2f(ceilf(log2f(altt) / kAltLadder) * kAltLadder) : altt;
-
-        // Geographic tangent frame at the snapped centre (view +Y = north pole).
-        RVec3 pole = fabsf(Cv.y) < 0.99f ? RVec3{0,1,0} : RVec3{1,0,0};
-        RVec3 Ev   = rmath::normalize(rmath::cross(pole, Cv));
-        RVec3 Nv   = rmath::cross(Cv, Ev);
-        // Cap reaches past the geometric horizon (snapped alt) so it covers all
-        // visible ground; margin also absorbs the altitude snap step.
-        float horizon = acosf(Rkm / (Rkm + alts));
-        float tanHa   = tanf(fminf(horizon * 1.08f, 1.4f));
-
-        float pc[4]   = { Cv.x, Cv.y, Cv.z, tanHa };
-        float pe[4]   = { Ev.x, Ev.y, Ev.z, Rkm };
-        float pn[4]   = { Nv.x, Nv.y, Nv.z, alts };
-        float pcam[4] = { f.cam_pos.x, f.cam_pos.y, f.cam_pos.z, 8.849f };  // disp scale (km)
-        float ptr[4]  = { Cvt.x, Cvt.y, Cvt.z, altt };       // true centre/alt: reconstruction
-        bgfx::setUniform(u_patchC_, pc);
-        bgfx::setUniform(u_patchE_, pe);
-        bgfx::setUniform(u_patchN_, pn);
-        bgfx::setUniform(u_patchCam_, pcam);
-        bgfx::setUniform(u_patchTrue_, ptr);
-        bgfx::setTransform(rmath::identity().m);   // positions already in world km
-        bgfx::setVertexBuffer(0, pm.vbh);
-        bgfx::setIndexBuffer(pm.ibh);
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z
-                       | BGFX_STATE_DEPTH_TEST_LESS);   // no cull: graded cap faces camera
-        bgfx::submit(0, patchProg_);
-    }
 
     // Cloud shells: concentric cloud-map layers above the terrain. Drawn
     // inner->outer (back-to-front for the visible near hemisphere) with depth

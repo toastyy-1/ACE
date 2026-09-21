@@ -33,7 +33,7 @@ FCInitState FlightController::create_target_trajectory(double lat_target, double
     FCInitState out;
 
     // target's terrain height
-    double target_radius = veh.r_target_ecef.norm();
+    double target_radius = veh.r_target_ecef.mag();
 
     // convert to radians
     lat_target = lat_target * M_PI / 180.0;
@@ -41,7 +41,7 @@ FCInitState FlightController::create_target_trajectory(double lat_target, double
 
     // derive lat and longitude from starting position of rocket on planet
     Vec3 p = veh.r_origin_eci;
-    double radius = p.norm();
+    double radius = p.mag();
     double lat_origin  = asin(p.z / radius);
     double long_origin = atan2(p.y, p.x);
 
@@ -64,7 +64,7 @@ FCInitState FlightController::create_target_trajectory(double lat_target, double
     };
     Vec3 up = {0, 0, 1};
     Vec3 rotation_axis = up.cross(unit_vec_from_center);
-    double axis_norm = rotation_axis.norm();
+    double axis_norm = rotation_axis.mag();
     Vec3 rot_axis_u = axis_norm > 1e-12 ? rotation_axis / axis_norm : Vec3{1, 0, 0}; // any axis works at the poles
     double half_theta = acos(sin(lat_origin)) / 2;
     out.q_origin = {
@@ -99,7 +99,7 @@ void FlightController::init(double current_time) {
     cs.stage = ARMED;
     cs.time = current_time;
 
-    double tgt_lat = asin(veh.r_target_ecef.z / veh.r_target_ecef.norm()) * RAD_TO_DEG;
+    double tgt_lat = asin(veh.r_target_ecef.z / veh.r_target_ecef.mag()) * RAD_TO_DEG;
     double tgt_long = atan2(veh.r_target_ecef.y, veh.r_target_ecef.x) * RAD_TO_DEG;
     cs.is = create_target_trajectory(tgt_lat, tgt_long);
 
@@ -154,7 +154,7 @@ void FlightController::estimate_state() {
 
 // returns quaternion that points in direction of
 Quat FlightController::quat_from_vec(Vec3 u) {
-    u = u.normalized();
+    u = u.unit();
 
     // quaternion of the shortest arc from nose to u
     Quat q = {

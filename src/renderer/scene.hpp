@@ -2,6 +2,7 @@
 
 #include "render_types.hpp"
 #include "rmath.hpp"
+#include "../types.hpp"
 
 // Backend-neutral *domain* description of the scene's high-level objects. The
 // renderer computes these each frame from the sim (it owns the precision-
@@ -49,6 +50,10 @@ struct EarthFrame {
     RVec3 sun_dir;         // unit view-space direction TO the sun
     RVec3 center;          // view-space sphere centre (km)
     RVec3 cam_pos;         // view-space camera position (km)
+    // `center` again in double. At ~6400 km a float only resolves ~0.5 m, which
+    // is visible between the ground and a rocket sitting on it; the terrain
+    // anchors its chunks from this instead.
+    Vec3  center_km;
 };
 
 }
