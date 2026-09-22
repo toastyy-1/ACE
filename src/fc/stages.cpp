@@ -16,8 +16,8 @@ void FlightController::s1_powered() {
     ///////////////////////////////////////////////////////////////////////////
     // do initial turn towards target before gravity turn starts
     ///////////////////////////////////////////////////////////////////////////
-    constexpr double init_turn_len = 2.0; // seconds
-    constexpr double init_tilt_angle = 90.0 * DEG_TO_RAD;
+    constexpr double init_turn_len = 20.0; // seconds
+    constexpr double init_tilt_angle = 50.0 * DEG_TO_RAD;
 
     if (dt < init_turn_len) {
         Vec3 up = cs.r.unit();
@@ -35,8 +35,6 @@ void FlightController::s1_powered() {
     // after initial turn, start gravity turn (follow v vec)
     ///////////////////////////////////////////////////////////////////////////
     else {
-        cs.stage = FREE_FLIGHT;
-        cs.cutoff_engine_flag = true;
         // align with plane connecting to target and blend with current velocity vector
         Vec3 n = cs.is.r_origin.cross(r_target).unit();
         Vec3 v_in_target_plane = cs.v - n * cs.v.dot(n);
