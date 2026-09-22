@@ -7,9 +7,9 @@
  * this is the only header a flight controller needs to include.
  * 
  * To build with specific flight controller code in mind please run:
- *     make FC_SRC=src/fc/fc.c
+ *     make FC_SRC=src/fc/src/fc.c
  *   or if your FC has multiple files (probably)
- *     make FC_SRC="src/fc/fc.c src/fc/file2.c"
+ *     make FC_SRC="src/fc/src/fc.c src/fc/src/file2.c"
  *
  * the sim calls fc_update once per time step. 
  * 

@@ -1,5 +1,5 @@
-#include "fc/fc_bind.hpp"
-#include "sim/rocket.hpp"
+#include "fc/inc/fc_bind.hpp"
+#include "sim/inc/rocket.hpp"
 
 namespace {
     Rocket* g_rocket = nullptr;

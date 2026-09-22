@@ -5,22 +5,22 @@ CFLAGS   := -std=c11 -Wall -Wpedantic -Isrc -O3
 
 # --- flight controller (swap this out to test your own) ---
 # whatever you point FC_SRC at must implement fc_init / fc_update / fc_free from
-# src/fc/fc_api.h. .c and .cpp both work, and it can be more than one file:
+# src/fc/inc/fc_api.h. .c and .cpp both work, and it can be more than one file:
 #
-#     make FC_SRC=src/fc/example_fc.c
-#     make FC_SRC="src/fc/my_nav.cpp src/fc/my_guidance.cpp"
-FC_SRC := src/fc/fc.cpp src/fc/stages.cpp
+#     make FC_SRC=src/fc/src/example_fc.c
+#     make FC_SRC="src/fc/src/my_nav.cpp src/fc/src/my_guidance.cpp"
+FC_SRC := src/fc/src/fc.cpp src/fc/src/stages.cpp
 
 FC_C_SRCS   := $(filter %.c,$(FC_SRC))
 FC_CXX_SRCS := $(filter-out %.c,$(FC_SRC))
 FC_C_OBJS   := $(addprefix build/fc/,$(notdir $(FC_C_SRCS:.c=.o)))
 
 COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp src/renderer/terrain_lod.cpp \
-               src/sim/sim.cpp src/sim/rocket.cpp src/sim/config.cpp src/fc/fc_api.cpp \
+               src/sim/src/sim.cpp src/sim/src/rocket.cpp src/sim/src/config.cpp src/fc/src/fc_api.cpp \
                $(FC_CXX_SRCS)
 
 # a plain c controller gets compiled on its own and linked in
-build/fc/%.o: src/fc/%.c src/fc/fc_api.h
+build/fc/%.o: src/fc/src/%.c src/fc/inc/fc_api.h
 	@mkdir -p build/fc
 	$(CC) $(CFLAGS) -c $< -o $@
 

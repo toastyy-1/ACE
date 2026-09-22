@@ -1,6 +1,6 @@
-#include "sim/sim.hpp"
-#include "sim/rocket.hpp"
-#include "sim/config.hpp"
+#include "sim/inc/sim.hpp"
+#include "sim/inc/rocket.hpp"
+#include "sim/inc/config.hpp"
 #include "types.hpp"
 #include <cmath>
 #include <iostream>

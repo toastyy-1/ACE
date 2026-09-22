@@ -1,4 +1,4 @@
-#include "sim/config.hpp"
+#include "sim/inc/config.hpp"
 #include "fkYAML/node.hpp"
 #include <fstream>
 #include <iostream>

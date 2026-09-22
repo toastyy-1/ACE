@@ -137,17 +137,17 @@ rockets:
 The FC is selected at build time with `FC_SRC`:
 
 ```sh
-make FC_SRC=src/fc/my_fc.c                          # single C file
-make FC_SRC="src/fc/my_nav.cpp src/fc/my_guid.cpp"  # several files
-make bgfx FC_SRC=src/fc/my_fc.c                     # same for the bgfx target
+make FC_SRC=src/fc/src/my_fc.c                          # single C file
+make FC_SRC="src/fc/src/my_nav.cpp src/fc/src/my_guid.cpp"  # several files
+make bgfx FC_SRC=src/fc/src/my_fc.c                     # same for the bgfx target
 ```
 
-Default is `FC_SRC := src/fc/fc.cpp src/fc/stages.cpp` (my own epic controller).
+Default is `FC_SRC := src/fc/src/fc.cpp src/fc/src/stages.cpp` (my own epic controller).
 
 Rules you should probably follow:
 
 - Your code must define exactly three things: `fc_init`, `fc_update`, `fc_free`.
-- C++ files are compiled into the main build. **C files are compiled separately**, so a `.c` controller has to live in `src/fc/` for `make` to find a rule for it. `.cpp` files can live anywhere.
+- C++ files are compiled into the main build. **C files are compiled separately**, so a `.c` controller has to live in `src/fc/src/` for `make` to find a rule for it. `.cpp` files can live anywhere.
 - `fc_api.h` is the only header you need. It works from both C and C++ and already carries the vector/quaternion helpers, gravity model, ECI/ECEF conversions, and stage math (`fc_stage_burn_time`, `fc_stage_delta_v`, …). ((please read the API file completely)). You are welcome to interface your own math for internal flight controller operations, but when interfacing with the API it easier to use the API's helpers.
 
 ### The three entry points
@@ -196,7 +196,7 @@ The sim applies them after `fc_update` returns, in a fixed order (burn/cutoff, s
 ### Example
 
 ```c
-#include "fc/fc_api.h"
+#include "fc/inc/fc_api.h"
 #include <stdlib.h>
 
 typedef struct { const fc_vehicle* veh; fc_vec3 r, v; fc_quat q; int lit; } my_fc;
@@ -229,4 +229,4 @@ void fc_update(void* state, const fc_sensors* sen) {
 void fc_free(void* state) { free(state); }
 ```
 
-Build it with `make FC_SRC=src/fc/my_fc.c && ./program`.
+Build it with `make FC_SRC=src/fc/src/my_fc.c && ./program`.

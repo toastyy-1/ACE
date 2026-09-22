@@ -4,7 +4,7 @@
 #include <mutex>
 #include <vector>
 #include "types.hpp"
-#include "rocket.hpp"
+#include "sim/inc/rocket.hpp"
 
 namespace sim {
 

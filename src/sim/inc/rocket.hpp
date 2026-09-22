@@ -1,9 +1,9 @@
 #pragma once
 #include "types.hpp"
 #include "constants.hpp"
-#include "sim/properties.hpp"
-#include "sim/ins.hpp"
-#include "fc/fc_bind.hpp"
+#include "sim/inc/properties.hpp"
+#include "sim/inc/ins.hpp"
+#include "fc/inc/fc_bind.hpp"
 #include <array>
 #include <memory>
 #include <vector>

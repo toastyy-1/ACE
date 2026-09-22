@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "sim/properties.hpp"
+#include "sim/inc/properties.hpp"
 
 struct RocketEntry {
     double origin_lat = 0.0, origin_lon = 0.0;

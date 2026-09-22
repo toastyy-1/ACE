@@ -1,6 +1,6 @@
-#include "rocket.hpp"
+#include "sim/inc/rocket.hpp"
 #include "constants.hpp"
-#include "fc/fc_api.h"
+#include "fc/inc/fc_api.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>

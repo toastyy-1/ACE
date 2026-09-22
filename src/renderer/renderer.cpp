@@ -1,6 +1,6 @@
 #include "renderer.hpp"
 #include "geometry.hpp"
-#include "../sim/sim.hpp"
+#include "../sim/inc/sim.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>

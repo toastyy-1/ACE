@@ -4,7 +4,7 @@
 #else
 #include "renderer/raylib/raylib_backend.hpp"
 #endif
-#include "sim/sim.hpp"
+#include "sim/inc/sim.hpp"
 #include <thread>
 
 int main() {

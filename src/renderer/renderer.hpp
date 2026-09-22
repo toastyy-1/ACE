@@ -2,7 +2,7 @@
 #include "render_backend.hpp"
 #include "../constants.hpp"
 #include "../types.hpp"
-#include "../sim/rocket.hpp"   // RocketState (returned by primaryState / sim::get_state)
+#include "../sim/inc/rocket.hpp"   // RocketState (returned by primaryState / sim::get_state)
 #include <vector>
 #include <string>
 #include <atomic>

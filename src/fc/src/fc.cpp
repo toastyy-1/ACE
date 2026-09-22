@@ -3,7 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
-#include "fc.hpp"
+#include "fc/inc/fc.hpp"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // entry points                                                                 //
