@@ -1,0 +1,53 @@
+# configration for matching NASA 6DoF NESC test cases
+
+time_step: 0.001
+step_delay: 0.0 
+
+# one full entry per rocket
+rockets:
+  - origin_lat: 0.0
+    origin_lon: 0.0
+    target_lat: 0.0
+    target_lon: 0.0
+
+    radius: 0.835 # radius of the rocket (cylinder)
+    drag_coefficient: 0.0
+
+    stage:
+      - id: 1
+        dry_mass: 2292.0 # mass of empty stage
+        fuel_mass: 20938.0 # mass of fuel
+        isp: 267.0 # vacuum
+        isp_sea_level: 242.0
+        length: 7.49 # from tip to tail of the stage
+        com_distance: 3.75 # from tip to tail of the stage
+        fuel_com_distance: 3.6 # CoM of the propellant column with a full tank
+        fuel_length: 6.0 # length of the propellant column with a full tank
+        max_thrust: 903692.0 # max engine t hrust in N
+        engine_distance: 7.49 # distance from the top of the stage
+        gimbal_range_deg: 5.0 # degrees
+
+      - id: 2
+        dry_mass: 795.0
+        fuel_mass: 6237.0
+        isp: 288.0
+        length: 4.12
+        com_distance: 2.06
+        fuel_com_distance: 1.95
+        fuel_length: 3.2
+        max_thrust: 270421.0
+        engine_distance: 4.12
+        gimbal_range_deg: 5.0
+
+      - id: 3
+        dry_mass: 1500.0
+        fuel_mass: 3306.0
+        isp: 285.0
+        length: 6.59
+        com_distance: 3.3
+        fuel_com_distance: 4.2
+        fuel_length: 2.4
+        max_thrust: 156070.0
+        engine_distance: 6.59
+        gimbal_range_deg: 4.0
+        rcs_max_moment: [100.0, 100.0, 100.0]
