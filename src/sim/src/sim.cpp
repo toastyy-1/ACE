@@ -33,7 +33,8 @@ namespace sim {
         STEP_DELAY = config.step_delay;
 
         for (const RocketEntry& rocket : config.rockets) {
-            rocket_list.emplace_back(rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon, rocket.props);
+            rocket_list.emplace_back(rocket.name, rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
+                                     rocket.props, rocket.track_data, rocket.export_interval);
         }
 
         // configure the rocket for starting settings

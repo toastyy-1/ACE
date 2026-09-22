@@ -8,3 +8,4 @@
 .bgfx_textures_ready
 build/
 .vscode
+data/

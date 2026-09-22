@@ -3,12 +3,19 @@
 #include "fc/inc/fc_api.h"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
-Rocket::Rocket(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude,
-               const RocketProps& rocket_props) {
+Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double origin_longitude, double target_latitude,
+               double target_longitude, const RocketProps& rocket_props, bool track_data, double export_interval) {
     set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
     props = rocket_props;
+    name = rocket_name;
+
+    if (track_data) {
+        std::filesystem::create_directories("data");
+        data_export = std::make_unique<DataExport>("data/" + name + ".csv", export_interval);
+    }
 }
 
 Rocket::~Rocket() {
@@ -581,6 +588,9 @@ void Rocket::update_dynamics(double current_time) {
 
     // accelerometer measures everything except gravity, in the body frame
     a_spec = rotate_by_quat(q_rocket.conjugate(), a - g_end);
+
+    // log the end-of-step state if this rocket is tracking data
+    if (data_export) data_export->write_row(t_end, r, v, a, q_rocket, w, m_end, m_fuel_current - mdot * dt, thrust_body.mag());
 }
 
 // updates the fuel mass based on the current rocket states

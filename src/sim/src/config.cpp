@@ -36,6 +36,10 @@ SimConfig load_sim_config(const std::string& path) {
         for (const fkyaml::node& rn : root["rockets"]) {
             RocketEntry rocket;
 
+            rocket.name       = value_or(rn, "name", "rocket_" + std::to_string(ri));
+            rocket.track_data = value_or(rn, "track_data", false);
+            rocket.export_interval = value_or(rn, "export_interval", rocket.export_interval);
+
             rocket.origin_lat = value_or(rn, "origin_lat", 0.0);
             rocket.origin_lon = value_or(rn, "origin_lon", 0.0);
             rocket.target_lat = value_or(rn, "target_lat", 0.0);

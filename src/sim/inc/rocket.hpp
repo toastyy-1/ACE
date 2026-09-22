@@ -3,9 +3,11 @@
 #include "constants.hpp"
 #include "sim/inc/properties.hpp"
 #include "sim/inc/ins.hpp"
+#include "sim/inc/data_export.hpp"
 #include "fc/inc/fc_bind.hpp"
 #include <array>
 #include <memory>
+#include <string>
 #include <vector>
 #include "renderer/bgfx/earth_bump_map.hpp"
 
@@ -39,8 +41,8 @@ class Rocket {
     double life_countdown = 30.0; // stays alive for n (sim) seconds before disappearing
 
     // setup
-    Rocket(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude,
-           const RocketProps& props);
+    Rocket(const std::string& name, double origin_latitude, double origin_longitude, double target_latitude,
+           double target_longitude, const RocketProps& props, bool track_data, double export_interval);
     ~Rocket();
 
     // rocket owns the flight controller state
@@ -51,6 +53,7 @@ class Rocket {
 
     // getters:
     RocketState get_state() const;
+    const std::string& get_name() const { return name; }
     bool is_detonated() { return detonated; }
     int active_stage_idx() const { return active_idx; } // index the fc's stage array with this
 
@@ -103,6 +106,10 @@ class Rocket {
     // rocket static configuration                                                               //
     ///////////////////////////////////////////////////////////////////////////////////////////////
     RocketProps props;
+    std::string name;
+
+    // flight data csv writer
+    std::unique_ptr<DataExport> data_export;
 
     // initial launch geometry (origin, target, launch attitude, such things)
     RocketStartState start_state;

@@ -1,11 +1,15 @@
 # sim launch scenario and rocket configuration
 
 time_step: 0.01   # seconds
-step_delay: 0.01  # the time in between steps the sim stops to take a break (for visualization purposes)
+step_delay: 0.003  # the time in between steps the sim stops to take a break (for visualization purposes)
 
 # one full entry per rocket
 rockets:
-  - origin_lat: 48.209
+  - name: rocket_1
+    track_data: true # if true, writes this rocket's flight data to data/<name>.csv
+    export_interval: 1.0 # sim seconds between exported rows (0 = every step)
+
+    origin_lat: 48.209
     origin_lon: -101.406
     target_lat: 53.9
     target_lon: 43.3
