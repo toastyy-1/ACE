@@ -7,7 +7,6 @@
 #include <thread>
 #include <chrono>
 #include "constants.hpp"
-#include <fstream>
 
 
 namespace sim {
@@ -88,19 +87,6 @@ namespace sim {
         }
 
         publish_sim_states(rocket_list); // final states
-        write_results_csv(rocket_list);
-    }
-
-    void Sim::write_results_csv(const std::vector<Rocket>& rocket_list) {
-        std::ofstream file("landing_errors.csv");
-        file << "rocket,x,y,z,error_m\n";
-
-        for (size_t i = 0; i < rocket_list.size(); i++) {
-            RocketState s = rocket_list[i].get_state();
-            Vec3 pos_ecef = eci_to_ecef(s.r, t);
-            double error = (pos_ecef - s.init.target_r_ecef).mag();
-            file << i << "," << pos_ecef.x << "," << pos_ecef.y << "," << pos_ecef.z << "," << error << "\n";
-        }
     }
 
     void Sim::publish_sim_states(const std::vector<Rocket>& rocket_list) {

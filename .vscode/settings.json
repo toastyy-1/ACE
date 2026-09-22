@@ -1,3 +1,15 @@
 {
-    "cmake.sourceDirectory": "/home/java/Development/ballistic-trajectory-sim/third_party/bgfx.cmake"
+    "cmake.sourceDirectory": "${workspaceFolder}/third_party/bgfx.cmake",
+    "C_Cpp.default.compilerPath": "/usr/bin/g++",
+    "files.associations": {
+        "*.hpp": "cpp",
+        "fc_api.h": "c"
+    },
+    "files.exclude": {
+        "**/.bgfx_textures_ready": true
+    },
+    "search.exclude": {
+        "third_party/bgfx.cmake": true,
+        "build": true
+    }
 }

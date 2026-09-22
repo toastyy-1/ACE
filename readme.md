@@ -53,8 +53,6 @@ make run-bgfx
 Camera: `WASD` + `QE` to move, mouse to look, `shift` to boost, `F` to recenter on the vehicle,
 `TAB` to cycle tracked rocket, `1`-`9` toggle HUD overlays.
 
-On exit the sim writes `landing_errors.csv`;
-
 ---
 
 ## 4. Configuring the environment (`config/sim.yaml`)

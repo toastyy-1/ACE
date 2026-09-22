@@ -24,7 +24,6 @@ namespace sim {
 
     private:
         void publish_sim_states(const std::vector<Rocket>& rocket_list);
-        void write_results_csv(const std::vector<Rocket>& rocket_list);
 
         mutable std::mutex rocket_states_mutex;
         std::vector<RocketState> rocket_states;
