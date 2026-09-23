@@ -59,6 +59,6 @@ struct Stage {
 // config and geometry of rocket whao
 struct RocketProps {
     double radius = 0;  // hull radius for the solid-cylinder inertia model (m)
-    double Cd = 0.0;    // drag coefficient
+    double nosecone_length = 0;
     std::vector<Stage> stages;
 };

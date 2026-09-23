@@ -4,29 +4,162 @@
 
  #include "sim/inc/rocket.hpp"
  #include <algorithm>
+ #include <cmath>
+#include <iostream>
+
+
+ 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// helper functions                                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////////
+static double dynamic_pressure(double rho, double V) {
+    return 0.5 * rho * V * V;
+}
+
+static double normal_drag_force(double dynamic_pressure, double A_ref, double C_N) {
+    return dynamic_pressure * A_ref * C_N;
+}
+
+static double axial_drag_force(double dynamic_pressure, double A_ref, double C_A) {
+    return dynamic_pressure * A_ref * C_A;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// subsonic normal force                                                                     //
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Munk/Barrowman potential flow
+static double cone_C_N_subsonic(double AoA, double A_ref, double A_front, double A_back) {
+    return (2.0 * sin(AoA) / A_ref) * (A_back - A_front);
+}
+
+// Niskanen viscous crossflow
+static double C_N_lift_subsonic(double AoA, double A_planiform, double A_ref) {
+    return 1.1 * (A_planiform / A_ref) * sin(AoA) * sin(AoA);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// center of pressure                                                                        //
+///////////////////////////////////////////////////////////////////////////////////////////////
+static double X_CP(double cone_height, double len_body, double C_N_cone, double C_N_body) {
+    double t1t = (2.0 / 3.0) * cone_height * C_N_cone;
+    double t2t = (cone_height + 0.5 * len_body) * C_N_body;
+    double t1b = C_N_cone + C_N_body;
+    return (t1t + t2t) / t1b;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// axial force                                                                               //
+///////////////////////////////////////////////////////////////////////////////////////////////
+static double C_f(double Re) {
+    if (Re < 1.0e4) Re = 1.0e4;
+    double t = 1.5 * log(Re) - 5.6;
+    return 1.0 / (t * t);
+}
+
+static double C_f_c_subsonic(double M, double Re) {
+    return C_f(Re) * (1.0 - 0.1 * M * M);
+}
+
+static double C_f_c_supersonic(double M, double Re) {
+    return C_f(Re) / pow(1.0 + 0.15 * M * M, 0.58);
+}
+
+// coeff axial drag for skin friction
+static double C_d_friction(double M, double Re, double A_wet, double A_ref, double body_len, double body_diameter) {
+    double C_f_c = 1.0;
+    if (M > 1.0) {
+        C_f_c = C_f_c_supersonic(M, Re);
+    }
+    else {
+        C_f_c = C_f_c_subsonic(M, Re);
+    }
+
+    double f_b = body_len / body_diameter;
+    return C_f_c * (1.0 + 1.0 / (2.0 * f_b)) * (A_wet / A_ref);
+}
+
+// coeff axial drag for presure at nose
+static double C_d_wave_drag(double cone_half_angle, double M) {
+    double s = sin(cone_half_angle);
+
+    if (M > 1.3) {
+        return 2.1 * s * s + (0.5 * s) / sqrt(M * M - 1.0);
+    }
+    return 0.8 * s * s;
+}
+
+static double C_d_base_drag(double M, bool engine_burning) {
+    if (engine_burning) {
+        return 0.0;
+    }
+
+    double C_d_b = 1.0;
+    if (M > 1) {
+        C_d_b = 0.25 / M;
+    }
+    else {
+        C_d_b = 0.12 + 0.13 * M * M;
+    }
+
+    return C_d_b;
+}
+
 
 /**
  * acceleration due to drag in the ECI frame
  */
-Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, double mass) {
-    double air_density, air_pressure;
-    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure);
+Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double mass, const RocketProps& props) {
 
-    // wind of earth spinning
-    Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
-    Vec3 v_air = w_earth.cross(r);
-    Vec3 v_relative = v - v_air;
+    // calculate the properties of the air
+    double air_density, air_pressure, speed_of_sound, mu;
+    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure, speed_of_sound, mu);
 
-    double craft_speed = v_relative.mag();
-    if (craft_speed < 1e-6) return {0, 0, 0}; // no airspeed
+    // calculate variables relating to the geometry of the craft
+    double diameter = 2.0 * props.radius;
+    double A_ref = (M_PI * diameter * diameter) / 4.0;
+    double A_front = 0.0; // nosecone tip
+    double A_back = A_ref;
+    double body_len = rocket_body_length();
+    double total_len = body_len + props.nosecone_length;
+    double A_planiform = 0.5 * diameter * props.nosecone_length + diameter * body_len;
+    double wetted_area_nose = M_PI * props.radius * sqrt(props.radius * props.radius + props.nosecone_length * props.nosecone_length);
+    double wetted_area_body = M_PI * diameter * body_len;
+    double A_wet = wetted_area_body + wetted_area_nose;
+    double nosecone_half_angle = atan((diameter / 2) / props.nosecone_length);
+
+    // calculate speed, mach, reynolds num
+    Vec3 wind_speed = surface_velocity_eci(r);
+    Vec3 rel_airspeed = v - wind_speed;
+    double speed = rel_airspeed.mag();
+    double Mach = speed / speed_of_sound;
+    double Re = (air_density * speed * total_len) / mu;
+
+    if (speed < 1e-6) {
+        return {0, 0, 0};
+    }
 
     // calcualte the aoa entering into the atmosphere
-    //Vec3 nose_direction = nose_direction_eci();
-    //double AoA = std::acos(std::max(-1.0, std::min(1.0, v_relative.dot(nose_direction) / craft_speed)));
-    //std::cout << AoA * RAD_TO_DEG << std::endl;
+    Vec3 nose_direction = nose_direction_eci(q);
+    double AoA = std::acos(std::max(-1.0, std::min(1.0, rel_airspeed.dot(nose_direction) / speed)));
 
-    // @todo apply drag (shid rn add a real drag model idoit) ((idfk how im going to do that simply))
-    double area = M_PI * props.radius * props.radius;
-    double drag_mag = 0.5 * air_density * craft_speed * craft_speed * props.Cd * area;
-    return v_relative * (-drag_mag / (mass * craft_speed));
+    // calculate dynamic presssure
+    double dyn_pressure = dynamic_pressure(air_density, speed);
+
+    // calculate normal drag acceleration magnitude
+    double C_N = cone_C_N_subsonic(AoA, A_ref, A_front, A_back) + C_N_lift_subsonic(AoA, A_planiform, A_ref);
+    double a_N = normal_drag_force(dyn_pressure, A_ref, C_N) / mass;
+
+    // calculat axial drag acceleration magnitude
+    bool engine_burning = active_stage().thrust > 0.0 && active_stage().m_fuel > 0.0;
+    double C_A = C_d_friction(Mach, Re, A_wet, A_ref, total_len, diameter) + C_d_wave_drag(nosecone_half_angle, Mach) + C_d_base_drag(Mach, engine_burning);
+    double a_A = axial_drag_force(dyn_pressure, A_ref, C_A) / mass;
+
+    // calculate the normal and axial acceleration vectors in ECI
+    double v_axial = rel_airspeed.dot(nose_direction);
+    Vec3 axial_a = nose_direction * (v_axial >= 0.0 ? -a_A : a_A);
+    Vec3 v_perp = rel_airspeed - nose_direction * v_axial;
+    double v_perp_mag = v_perp.mag();
+    Vec3 norm_a = v_perp_mag > 1e-9 ? v_perp * (-a_N / v_perp_mag) : Vec3{0, 0, 0};
+
+    return norm_a + axial_a;
 }

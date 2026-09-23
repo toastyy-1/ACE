@@ -46,7 +46,7 @@ SimConfig load_sim_config(const std::string& path) {
             rocket.target_lon = value_or(rn, "target_lon", 0.0);
 
             rocket.props.radius = value_or(rn, "radius", rocket.props.radius);
-            rocket.props.Cd     = value_or(rn, "drag_coefficient", rocket.props.Cd);
+            rocket.props.nosecone_length = value_or(rn, "nosecone_length", rocket.props.nosecone_length);
 
             // stage count comes from however many stage entries this rocket defines
             bool has_stages = rn.is_mapping() && rn.contains("stage") && rn["stage"].is_sequence();
