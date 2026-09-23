@@ -133,8 +133,12 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double
     double speed = rel_airspeed.mag();
     double Mach = speed / speed_of_sound;
     double Re = (air_density * speed * total_len) / mu;
+    mach = Mach;
 
     if (speed < 1e-6) {
+        dyn_pressure = 0;
+        aoa = 0;
+        drag_accel = {0, 0, 0};
         return {0, 0, 0};
     }
 
@@ -143,10 +147,13 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double
     double AoA = std::acos(std::max(-1.0, std::min(1.0, rel_airspeed.dot(nose_direction) / speed)));
 
     // calculate dynamic presssure
-    double dyn_pressure = dynamic_pressure(air_density, speed);
+    dyn_pressure = dynamic_pressure(air_density, speed);
+    aoa = AoA;
 
     // calculate normal drag acceleration magnitude
-    double C_N = cone_C_N_subsonic(AoA, A_ref, A_front, A_back) + C_N_lift_subsonic(AoA, A_planiform, A_ref);
+    double C_N_cone = cone_C_N_subsonic(AoA, A_ref, A_front, A_back);
+    double C_N_body = C_N_lift_subsonic(AoA, A_planiform, A_ref);
+    double C_N = C_N_cone + C_N_body;
     double a_N = normal_drag_force(dyn_pressure, A_ref, C_N) / mass;
 
     // calculat axial drag acceleration magnitude
@@ -161,5 +168,13 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double
     double v_perp_mag = v_perp.mag();
     Vec3 norm_a = v_perp_mag > 1e-9 ? v_perp * (-a_N / v_perp_mag) : Vec3{0, 0, 0};
 
-    return norm_a + axial_a;
+    // center of pressure measured from the nose tip
+    double x_cp = C_N > 1e-12 ? X_CP(props.nosecone_length, body_len, C_N_cone, C_N_body) : (2.0 / 3.0) * props.nosecone_length;
+    z_cp = total_len - x_cp;
+
+    Vec3 drag_a = norm_a + axial_a;
+
+    drag_accel = drag_a;
+
+    return drag_a;
 }

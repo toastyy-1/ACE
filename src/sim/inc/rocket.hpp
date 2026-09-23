@@ -136,7 +136,7 @@ class Rocket {
     double m_fuel_current = 0;   // current total fuel mass (kg)
     Vec3 I_body = {0, 0, 0};     // moments of inertia about the combined CoM, body frame
     double z_cm = 0;             // combined CoM along body +z, from the active stage's aft edge (m)
-    double z_cp = 0;             // center of pressure along the body +z (m)
+    double z_cp = 0;             // center of pressure along body +z, from the active stage's aft edge (m)
 
     // rcs system
     bool rcs_active = false;
@@ -151,6 +151,15 @@ class Rocket {
     Quat q_rocket = {1, 0, 0, 0};   // orientation of rocket nose relative to ECI (+z is nose)
     Quat q_engine = {1, 0, 0, 0};   // orientation of engine relative to rocket body
     double altitude = 0;
+
+    // tracked meta properties for data analytics
+    Vec3 drag_accel = {0, 0, 0};
+    Vec3 grav_accel = {0, 0, 0};
+    Vec3 thrust_accel = {0, 0, 0};
+    double mach = 0;
+    double dyn_pressure = 0;
+    double aoa = 0;
+
 
     // accessors for the currently active stage
     Stage& active_stage() { return props.stages[active_idx]; }
@@ -174,6 +183,7 @@ class Rocket {
     // applies translational acceleration components
     Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props); // gravity + drag + thrust, ECI
         Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double mass, const RocketProps& props);
+        Vec3 calc_gravity_accel(const Vec3& r);
 
 
     // coordinate system conversion helpers

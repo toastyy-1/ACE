@@ -3,6 +3,26 @@
 #include <cstdio>
 #include <string>
 
+// one CSV row of tracked flight data (vectors are ECI unless noted)
+struct ExportRow {
+    double t = 0;
+    Vec3 r, v, a;
+    Quat q;
+    Vec3 w;
+    double m = 0, m_fuel = 0, thrust = 0;
+    Vec3 g;           // gravitational acceleration
+    Vec3 drag;        // drag acceleration
+    Vec3 thrust_a;    // thrust acceleration
+    Vec3 a_spec;      // specific force, body frame
+    double altitude = 0;
+    double mach = 0;
+    double dyn_pressure = 0;
+    double aoa = 0;   // angle of attack (rad)
+    double z_cm = 0;  // CoM from the active stage's aft edge (m)
+    double z_cp = 0;  // CoP from the active stage's aft edge (m)
+    int stage = 0;    // active stage index
+};
+
 // opens a CSV on construction, writes a row per write_row call, and closes the file on destruction
 class DataExport {
     public:
@@ -20,8 +40,7 @@ class DataExport {
 
     // writes a new row to the CSV file containing tracked data
     // call it every time step; rows that land before the next interval are skipped
-    void write_row(double t, const Vec3& r, const Vec3& v, const Vec3& a, const Quat& q, const Vec3& w,
-                   double m, double m_fuel, double thrust);
+    void write_row(const ExportRow& row);
 
     private:
 

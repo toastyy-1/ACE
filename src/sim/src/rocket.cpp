@@ -153,7 +153,7 @@ Vec3 Rocket::net_body_torque(double thrust_scale) const {
 /**
  * gravitational acceleration in the ECI frame
  */
-static Vec3 calc_gravity_accel(const Vec3& r) {
+Vec3 Rocket::calc_gravity_accel(const Vec3& r) {
     double r2       = r.dot(r);
     double r_norm   = std::sqrt(r2);
     double pm       = -GM_EARTH / (r2 * r_norm);
@@ -161,11 +161,14 @@ static Vec3 calc_gravity_accel(const Vec3& r) {
     double zr2      = (r.z * r.z) / r2;
     double k        = 1.5 * J2 * (EARTH_RADIUS * EARTH_RADIUS) / r2;
 
-    return {
+    Vec3 g = {
         .x = pm * r.x * (1.0 - k * (5.0 * zr2 - 1.0)),
         .y = pm * r.y * (1.0 - k * (5.0 * zr2 - 1.0)),
-        .z = pm * r.z * (1.0 - k * (5.0 * zr2 - 3.0)),
+        .z = pm * r.z * (1.0 - k * (5.0 * zr2 - 3.0))
     };
+
+    grav_accel = g;
+    return g;
 }
 
 /**
@@ -496,8 +499,10 @@ void Rocket::update_dynamics(double current_time) {
     bool on_ground = is_rocket_on_ground(altitude);
     altitude = r.mag() - surface_r; // the ground contact may have moved the rocket
 
-    // gravity measurement at new position
+    // gravity, thrust, and drag at new position
     Vec3 g_end = calc_gravity_accel(r);
+    thrust_accel = rotate_by_quat(q_rocket, thrust_body) / m_end;
+    Vec3 drag_end = calc_drag_accel(r, v, q_rocket, m_end, props);
 
     // update acceleration of the body as consistent with RK4
     if (on_ground) {
@@ -506,14 +511,37 @@ void Rocket::update_dynamics(double current_time) {
     }
     else {
         // calculate RK4 total acceleration vector
-        a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, q_rocket, m_end, props);
+        a = g_end + thrust_accel + drag_end;
     }
 
     // accelerometer measures everything except gravity, in the body frame
     a_spec = rotate_by_quat(q_rocket.conjugate(), a - g_end);
 
     // log the end-of-step state if this rocket is tracking data
-    if (data_export) data_export->write_row(t_end, r, v, a, q_rocket, w, m_end, m_fuel_current - mdot * dt, thrust_body.mag());
+    if (data_export) {
+        ExportRow row;
+        row.t            = t_end;
+        row.r            = r;
+        row.v            = v;
+        row.a            = a;
+        row.q            = q_rocket;
+        row.w            = w;
+        row.m            = m_end;
+        row.m_fuel       = m_fuel_current - mdot * dt;
+        row.thrust       = thrust_body.mag();
+        row.g            = grav_accel;
+        row.drag         = drag_accel;
+        row.thrust_a     = thrust_accel;
+        row.a_spec       = a_spec;
+        row.altitude     = altitude;
+        row.mach         = mach;
+        row.dyn_pressure = dyn_pressure;
+        row.aoa          = aoa;
+        row.z_cm         = z_cm;
+        row.z_cp         = z_cp;
+        row.stage        = active_idx;
+        data_export->write_row(row);
+    }
 }
 
 /**

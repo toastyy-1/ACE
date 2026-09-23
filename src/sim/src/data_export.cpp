@@ -11,30 +11,39 @@ DataExport::DataExport(const std::string& filename, double interval) : interval(
     }
     std::setvbuf(file, nullptr, _IOFBF, FILE_BUFFER_SIZE);
 
-    std::fputs("t,rx,ry,rz,vx,vy,vz,ax,ay,az,qw,qx,qy,qz,wx,wy,wz,m,m_fuel,thrust\n", file);
+    std::fputs("t,rx,ry,rz,vx,vy,vz,ax,ay,az,qw,qx,qy,qz,wx,wy,wz,m,m_fuel,thrust,"
+               "gx,gy,gz,dragx,dragy,dragz,thrust_ax,thrust_ay,thrust_az,a_spec_x,a_spec_y,a_spec_z,"
+               "altitude,mach,dyn_pressure,aoa,z_cm,z_cp,stage\n", file);
 }
 
 DataExport::~DataExport() {
     if (file) std::fclose(file);
 }
 
-void DataExport::write_row(double t, const Vec3& r, const Vec3& v, const Vec3& a, const Quat& q, const Vec3& w,
-                           double m, double m_fuel, double thrust) {
+void DataExport::write_row(const ExportRow& row) {
     if (!file) return;
 
     // skip rows until the next interval (small tolerance since t accumulates float error each step)
+    double t = row.t;
     if (t < next_t - 1e-9) return;
     next_t += interval;
     if (next_t < t) next_t = t + interval; // jumped past several intervals (or first row), don't try to catch up
 
     const double vals[] = {
         t,
-        r.x, r.y, r.z,
-        v.x, v.y, v.z,
-        a.x, a.y, a.z,
-        q.w, q.x, q.y, q.z,
-        w.x, w.y, w.z,
-        m, m_fuel, thrust,
+        row.r.x, row.r.y, row.r.z,
+        row.v.x, row.v.y, row.v.z,
+        row.a.x, row.a.y, row.a.z,
+        row.q.w, row.q.x, row.q.y, row.q.z,
+        row.w.x, row.w.y, row.w.z,
+        row.m, row.m_fuel, row.thrust,
+        row.g.x, row.g.y, row.g.z,
+        row.drag.x, row.drag.y, row.drag.z,
+        row.thrust_a.x, row.thrust_a.y, row.thrust_a.z,
+        row.a_spec.x, row.a_spec.y, row.a_spec.z,
+        row.altitude, row.mach, row.dyn_pressure, row.aoa,
+        row.z_cm, row.z_cp,
+        static_cast<double>(row.stage),
     };
 
     char buf[sizeof(vals) / sizeof(vals[0]) * 32];

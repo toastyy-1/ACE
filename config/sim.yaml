@@ -1,7 +1,7 @@
 # sim launch scenario and rocket configuration
 
 time_step: 0.01   # seconds
-step_delay: 0.003  # the time in between steps the sim stops to take a break (for visualization purposes)
+step_delay: 0.001  # the time in between steps the sim stops to take a break (for visualization purposes)
 
 # one full entry per rocket
 rockets:
