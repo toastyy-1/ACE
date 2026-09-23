@@ -161,3 +161,6 @@ class Rocket {
     bool is_rocket_on_ground(double com_dist_from_gnd); // snaps the rocket onto the surface if it is touching the ground
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 };
+
+// standard atmosphere layers (air density/pressure at a given altitude above sea level)
+void atmosphere(double altitude, double& air_density, double& air_pressure);

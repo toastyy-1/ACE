@@ -1,8 +1,8 @@
 #include "sim/inc/rocket.hpp"
 #include "constants.hpp"
 #include "fc/inc/fc_api.h"
-#include <algorithm>
 #include <cmath>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 
@@ -22,8 +22,9 @@ Rocket::~Rocket() {
     // default destructor
 }
 
+
 /**
- * advances the stage of the rocket to the next one
+ * gets the current state of the rocket, mainly used for graphics
  */
 RocketState Rocket::get_state() const {
     double length = 0;
@@ -48,155 +49,66 @@ RocketState Rocket::get_state() const {
     return s;
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////
-// flight controller boundary                                                                //
-///////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MATH HELPERS
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * hands the sensors to whatever thing implements fc_api.h and applies what it asked for
+ * updates the fuel mass based on the current rocket states
  */
-void Rocket::update_flight_controller(double current_time) {
-    if (pending_cutoff) { active_stage().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
-
-    fc_bind::begin(this, &fc_cmd);
-
-    // hand over the rockets spec and let the controller set itself up
-    if (!fc_started) {
-        fc_stages.clear();
-        fc_stages.reserve(props.stages.size());
-        for (const Stage& s : props.stages) {
-            fc_stage fs{};
-            fs.id                      = s.id;
-            fs.m_dry                   = s.m_dry;
-            fs.m_fuel                  = s.m_fuel_full;
-            fs.isp                     = s.isp;
-            fs.isp_sea_level           = s.isp_sea_level;
-            fs.tip_to_end_length       = s.tip_to_end_length;
-            fs.CoM_dist                = s.CoM_dist;
-            fs.fuel_CoM_dist           = s.fuel_CoM_dist;
-            fs.fuel_length             = s.fuel_length;
-            fs.max_thrust              = s.max_thrust;
-            fs.engine_distance         = s.engine_distance;
-            fs.engine_gimbal_range_deg = s.engine_gimball_range;
-            fs.rcs_max_moment          = s.rcs_max_capable_moment;
-            fc_stages.push_back(fs);
-        }
-
-        fc_veh = std::make_unique<fc_vehicle>();
-        fc_veh->radius        = props.radius;
-        fc_veh->Cd            = props.Cd;
-        fc_veh->num_stages    = static_cast<int>(fc_stages.size());
-        fc_veh->stages        = fc_stages.data();
-        fc_veh->r_origin_eci  = start_state.origin_r_eci;
-        fc_veh->q_origin_eci  = start_state.origin_q_eci;
-        fc_veh->r_target_ecef = start_state.target_r_ecef;
-        fc_veh->time_step     = TIME_STEP;
-
-        fc_state.p = fc_init(fc_veh.get(), current_time);
-        fc_started = true;
-        fc_last_time = current_time;
+void Rocket::update_mass() {
+    // dry structure and propellant are tracked separately so the CoM migrates as the tanks drain
+    double M = 0, M_f = 0, m_cm = 0, base = 0;
+    for (int i = active_idx; i < num_stages(); i++) {
+        const Stage& st = props.stages[i];
+        M += st.m_dry + st.m_fuel;
+        M_f += st.m_fuel;
+        m_cm += st.m_dry * (base + st.tip_to_end_length - st.dry_CoM())
+              + st.m_fuel * (base + st.tip_to_end_length - st.fuel_CoM());
+        base += st.tip_to_end_length;
     }
+    m_current = M;
+    m_fuel_current = M_f;
+    z_cm = m_cm / M;
 
-    // sample the sensors
-    fc_sensors sensors{};
-    sensors.t      = current_time;
-    sensors.dt     = current_time - fc_last_time;
-    sensors.a_spec = ins.read_acc(a_spec);
-    sensors.w      = ins.read_gyr(w);
-    sensors.g      = INS::gravity_eci(r);
-    fc_last_time   = current_time;
-
-    fc_update(fc_state.p, &sensors);
-
-    fc_bind::end();
-    apply_fc_commands();
-}
-
-/**
- * apply a step's worth of buffered commands
- */
-void Rocket::apply_fc_commands() {
-    // sub step cutoff wins over a plain cutoff on the same step
-    if (fc_cmd.burn_fraction_set) command_final_burn_fraction(fc_cmd.burn_fraction);
-    else if (fc_cmd.cutoff)       cutoff_engine();
-
-    if (fc_cmd.separate) advance_stage(); // clears the engine lock for the fresh stage
-    if (fc_cmd.light)    light_engine();
-    if (fc_cmd.detonate) activate_detonation();
-
-    set_engine_orientation(fc_cmd.gimbal);
-
-    if (fc_cmd.rcs_on) {
-        rcs_on();
-        rcs_apply_const_moment(fc_cmd.rcs_moment);
+    // also adjust moment using assumption that the structure and the propellant column are each uniform cylinders
+    double R2 = props.radius * props.radius, I_trans = 0;
+    base = 0;
+    for (int i = active_idx; i < num_stages(); i++) {
+        const Stage& st = props.stages[i];
+        double L = st.tip_to_end_length, L_f = st.fuel_length * st.fuel_fill();
+        double d_dry = (base + L - st.dry_CoM()) - z_cm;
+        double d_fuel = (base + L - st.fuel_CoM()) - z_cm;
+        I_trans += (1.0 / 12.0) * st.m_dry * (3.0 * R2 + L * L) + st.m_dry * d_dry * d_dry;
+        I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
+        base += L;
     }
-    else {
-        rcs_off();
-    }
+    I_body = { I_trans, I_trans, 0.5 * R2 * M };
 }
 
-bool Rocket::advance_stage() {
-    if (active_idx + 1 < num_stages()) {
-        active_idx++;
-        engine_locked = false; // fresh stage
-        return true;
-    }
-    return false;
+Vec3 Rocket::lat_lon_to_ecef(double latitude_deg, double longitude_deg) {
+    double lat = latitude_deg * M_PI / 180.0;
+    double lon = longitude_deg * M_PI / 180.0;
+    double alt = topo->SurfaceRadius2D(latitude_deg, longitude_deg);
+    return {
+        .x = alt * cos(lat) * cos(lon),
+        .y = alt * cos(lat) * sin(lon),
+        .z = alt * sin(lat)
+    };
 }
 
-/**
- * control lighting the engine on the current active stage
- */
-void Rocket::light_engine() {
-    if (engine_locked) return; // motor was cut off and cannot be relit on this stage
-    if (active_stage().m_fuel > 0) {
-        active_stage().thrust = active_stage().max_thrust;
-    }
-}
-
-/**
- * permanently terminates thrust on the active stage, kills motor real dead
- */
-void Rocket::cutoff_engine() {
-    active_stage().thrust = 0;
-    engine_locked = true;
-}
-
-/**
- * burns a fraction of a full steps worth of thrust this step, then cuts off next step
- * TREAT THIS LIKE A DEV FEATURE -- this type of thing isnt real irl so kind of ignore it
- * when analysing the program to learn about guidance shit. this is only to make the rocket
- * fc think that time is infinitely coarse instead of whatever TIME_STEP is (I hope ts makes sense)
- */
-void Rocket::command_final_burn_fraction(double fraction) {
-    if (engine_locked) return;
-    fraction = std::clamp(fraction, 0.0, 1.0);
-    active_stage().thrust = fraction * active_stage().max_thrust;
-    engine_locked = true;  // no relight
-    pending_cutoff = true; // thrust zeroed at the start of the next step
-}
-
-/**
- * tells the RCS system that it should apply a moment to the center of mass of the rocket body according to the input
- * if the applied moment is greater than possible by the RCS system it will just max out the moments
- */
-void Rocket::rcs_apply_const_moment(Vec3 m) {
-    Vec3 applied_moment = m;
-    // cap moments
-    applied_moment.x = std::clamp(m.x, -active_stage().rcs_max_capable_moment.x, active_stage().rcs_max_capable_moment.x);
-    applied_moment.y = std::clamp(m.y, -active_stage().rcs_max_capable_moment.y, active_stage().rcs_max_capable_moment.y);
-    applied_moment.z = std::clamp(m.z, -active_stage().rcs_max_capable_moment.z, active_stage().rcs_max_capable_moment.z);
-    applied_rcs_moment = applied_moment; // apply moment to apply_rcs_moment
-}
-
-// rotate a vector by a quaternion
+/** 
+ * rotate a vector by a quaternion
+*/
 static Vec3 rotate_by_quat(const Quat& q, const Vec3& u) {
     Vec3 q_vec = {q.x, q.y, q.z};
     Vec3 t = q_vec.cross(u);
     return u + t * (2.0 * q.w) + q_vec.cross(t) * 2.0;
 }
-
-// nose direction rotated into the ECI frame from an attitude
+/**
+ * nose direction rotated into the ECI frame from an attitude
+ */
 static Vec3 nose_from_quat(const Quat& q) {
     return {
         2.0 * (q.x * q.z + q.w * q.y),
@@ -238,7 +150,9 @@ Vec3 Rocket::net_body_torque(double thrust_scale) const {
     return net_torque;
 }
 
-// gravitational acceleration in the ECI frame
+/**
+ * gravitational acceleration in the ECI frame
+ */
 static Vec3 calc_gravity_accel(const Vec3& r) {
     double r2       = r.dot(r);
     double r_norm   = std::sqrt(r2);
@@ -254,20 +168,26 @@ static Vec3 calc_gravity_accel(const Vec3& r) {
     };
 }
 
-// power relationship density equation, sets T to the layer temperature
+/**
+ * power relationship density equation, sets T to the layer temperature
+ */
 static double pow_dens(double altitude, double& T, double rho_b, double T_b, double L, double layer_base_alt) {
     T = T_b + L * (altitude - layer_base_alt);
     return rho_b * pow(( T / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
 }
 
-// exponential relationship density equation, sets T to the layer temperature
+/**
+ * exponential relationship density equation, sets T to the layer temperature
+ */
 static double exp_dens(double altitude, double& T, double rho_b, double T_b, double layer_base_alt) {
     T = T_b;
     return rho_b * exp(-1.0 * (g0 * (altitude - layer_base_alt)) / (R_d * T_b));
 }
 
-// standard atmosphere layers
-static void atmosphere(double altitude, double& air_density, double& air_pressure) {
+/**
+ * standard atmosphere layers
+ */
+void atmosphere(double altitude, double& air_density, double& air_pressure) {
     double T = 288.15; // layer temperature, set by whichever branch runs
 
     // troposphere
@@ -306,31 +226,9 @@ static void atmosphere(double altitude, double& air_density, double& air_pressur
     air_pressure = air_density * R_d * T;
 }
 
-// acceleration due to drag in the ECI frame
-Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, double mass) {
-    double air_density, air_pressure;
-    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure);
-
-    // wind of earth spinning
-    Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
-    Vec3 v_air = w_earth.cross(r);
-    Vec3 v_relative = v - v_air;
-
-    double craft_speed = v_relative.mag();
-    if (craft_speed < 1e-6) return {0, 0, 0}; // no airspeed
-
-    // calcualte the aoa entering into the atmosphere
-    //Vec3 nose_direction = nose_direction_eci();
-    //double AoA = std::acos(std::max(-1.0, std::min(1.0, v_relative.dot(nose_direction) / craft_speed)));
-    //std::cout << AoA * RAD_TO_DEG << std::endl;
-
-    // @todo apply drag (shid rn add a real drag model idoit) ((idfk how im going to do that simply))
-    double area = M_PI * props.radius * props.radius;
-    double drag_mag = 0.5 * air_density * craft_speed * craft_speed * props.Cd * area;
-    return v_relative * (-drag_mag / (mass * craft_speed));
-}
-
-// angular acceleration in the body frame
+/**
+ * angular acceleration in the body frame
+ */
 static Vec3 ang_accel(const Vec3& w_i, const Vec3& I, const Vec3& net_torque) {
     Vec3 Iw = {I.x * w_i.x, I.y * w_i.y, I.z * w_i.z};
     Vec3 gyro = w_i.cross(Iw);
@@ -341,18 +239,17 @@ static Vec3 ang_accel(const Vec3& w_i, const Vec3& I, const Vec3& net_torque) {
     };
 }
 
-// translational acceleration in the ECI frame
-Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body) {
-    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
-}
-
-// calculates time derivative of input quaternion given current orientation
+/**
+ * calculates time derivative of input quaternion given current orientation
+ */
 static Quat quat_deriv(const Quat& q, const Vec3& w) {
     Quat omega = {0.0, w.x, w.y, w.z};
     return (q * omega) * 0.5;
 }
 
-// length of the remaining stack from the nose to the aft end of the active stage
+/**
+ * length of the remaining stack from the nose to the aft end of the active stage
+ */
 double Rocket::rocket_length() const {
     double length = 0;
     for (int i = active_idx; i < num_stages(); i++) {
@@ -361,6 +258,9 @@ double Rocket::rocket_length() const {
     return length;
 }
 
+/**
+ * checks if the rocket is on the ground
+ */
 bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
     double r_norm = r.mag();
 
@@ -397,13 +297,18 @@ bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
     }
 }
 
-// change in contact point velocity from an impulse J applied there (body frame)
+/**
+ * change in contact point velocity from an impulse J applied there (body frame)
+ */
 static Vec3 contact_vel_change(const Vec3& r_c, const Vec3& J, const Vec3& I, double m) {
     Vec3 ang = r_c.cross(J);
     Vec3 dw = {ang.x / I.x, ang.y / I.y, ang.z / I.z};
     return J / m + dw.cross(r_c);
 }
 
+/**
+ * specific ground dynamics are applied when the rocket is on the ground
+ */
 void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     // the ground supplies whatever force keeps the rocket riding along with the surface
     Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
@@ -453,6 +358,22 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     w = w_earth_body + (w - w_earth_body) * exp(-dt / 0.9);
 }
 
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MAIN DYNAMICS LOGIC
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * translational acceleration in the ECI frame
+ */
+Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body) {
+    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
+}
+
+/**
+ * the most important function for the dynamics calculations. 
+ * calculates all dynamics of the rocket using RK4
+ */
 void Rocket::update_dynamics(double current_time) {
     // rocket mass
     double m = m_current;
@@ -593,76 +514,9 @@ void Rocket::update_dynamics(double current_time) {
     if (data_export) data_export->write_row(t_end, r, v, a, q_rocket, w, m_end, m_fuel_current - mdot * dt, thrust_body.mag());
 }
 
-// updates the fuel mass based on the current rocket states
-void Rocket::update_mass() {
-    // dry structure and propellant are tracked separately so the CoM migrates as the tanks drain
-    double M = 0, M_f = 0, m_cm = 0, base = 0;
-    for (int i = active_idx; i < num_stages(); i++) {
-        const Stage& st = props.stages[i];
-        M += st.m_dry + st.m_fuel;
-        M_f += st.m_fuel;
-        m_cm += st.m_dry * (base + st.tip_to_end_length - st.dry_CoM())
-              + st.m_fuel * (base + st.tip_to_end_length - st.fuel_CoM());
-        base += st.tip_to_end_length;
-    }
-    m_current = M;
-    m_fuel_current = M_f;
-    z_cm = m_cm / M;
-
-    // also adjust moment using assumption that the structure and the propellant column are each uniform cylinders
-    double R2 = props.radius * props.radius, I_trans = 0;
-    base = 0;
-    for (int i = active_idx; i < num_stages(); i++) {
-        const Stage& st = props.stages[i];
-        double L = st.tip_to_end_length, L_f = st.fuel_length * st.fuel_fill();
-        double d_dry = (base + L - st.dry_CoM()) - z_cm;
-        double d_fuel = (base + L - st.fuel_CoM()) - z_cm;
-        I_trans += (1.0 / 12.0) * st.m_dry * (3.0 * R2 + L * L) + st.m_dry * d_dry * d_dry;
-        I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
-        base += L;
-    }
-    I_body = { I_trans, I_trans, 0.5 * R2 * M };
-}
-
-void Rocket::set_engine_orientation(Quat orientation) {
-    // normalize input
-    double norm = std::sqrt(orientation.w*orientation.w + orientation.x*orientation.x +
-                            orientation.y*orientation.y + orientation.z*orientation.z);
-    orientation.w /= norm;
-    orientation.x /= norm;
-    orientation.y /= norm;
-    orientation.z /= norm;
-
-    double angle = 2.0 * std::acos(std::max(-1.0, std::min(1.0, orientation.w)));
-    double max_angle = active_stage().engine_gimball_range * M_PI / 180.0;
-
-    if (angle <= max_angle) {
-        q_engine = orientation;
-        return;
-    }
-
-    // clamp to max gimbal angle
-    double sin_half = std::sin(angle / 2.0);
-    if (sin_half < 1e-9) {
-        q_engine = {1, 0, 0, 0};
-        return;
-    }
-    double half_max = max_angle / 2.0;
-    double s = std::sin(half_max) / sin_half;
-    q_engine = {std::cos(half_max), orientation.x * s, orientation.y * s, orientation.z * s};
-}
-
-Vec3 Rocket::lat_lon_to_ecef(double latitude_deg, double longitude_deg) {
-    double lat = latitude_deg * M_PI / 180.0;
-    double lon = longitude_deg * M_PI / 180.0;
-    double alt = topo->SurfaceRadius2D(latitude_deg, longitude_deg);
-    return {
-        .x = alt * cos(lat) * cos(lon),
-        .y = alt * cos(lat) * sin(lon),
-        .z = alt * sin(lat)
-    };
-}
-
+/**
+ * sets the starting position of the rocket on the earth with coordinates
+ */
 void Rocket::set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude) {
     Vec3 origin_pos = lat_lon_to_ecef(origin_latitude, origin_longitude);
 
