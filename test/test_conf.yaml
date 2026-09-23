@@ -11,7 +11,7 @@ rockets:
     target_lon: 0.0
 
     radius: 0.835 # radius of the rocket (cylinder)
-    drag_coefficient: 0.0
+    drag_coefficient: 20.0
 
     stage:
       - id: 1
