@@ -160,18 +160,25 @@ class Rocket {
     bool detonated = false;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    // helper functions                                                                                   //
+    // helper functions                                                                          //
     ///////////////////////////////////////////////////////////////////////////////////////////////
+    // starting
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
+    
+    // kinematic helpers
     Vec3 engine_thrust_body(double thrust_scale) const;
     Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass);
     Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body); // gravity + drag + thrust, ECI
-    Vec3 nose_direction_eci();
     Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
+    void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
+
+    // coordinate system conversion helpers
+    Vec3 nose_direction_eci();
     Vec3 lat_lon_to_ecef(double latitude_deg, double longitude_deg);
+
+    // rocket state helpers
     double rocket_length() const; // nose to aft end of the remaining stack (m)
     bool is_rocket_on_ground(double com_dist_from_gnd); // snaps the rocket onto the surface if it is touching the ground
-    void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 };
 
 // standard atmosphere layers (air density/pressure at a given altitude above sea level)
