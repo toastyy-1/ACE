@@ -1,5 +1,5 @@
 /**
- * handles all drag for rocket.cpp that involve control systems
+ * handles all drag for rocket.cpp
  */
 
  #include "sim/inc/rocket.hpp"

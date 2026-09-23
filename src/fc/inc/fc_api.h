@@ -2,7 +2,7 @@
 #define FC_API_H
 
 /*
- * BALLISTICMD FLIGHT CONTROLLER API
+ * FLIGHT CONTROLLER API
  *
  * this is the only header a flight controller needs to include.
  * 

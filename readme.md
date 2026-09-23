@@ -1,6 +1,6 @@
-# Ballistic Rocketry 6
+# Active Control Environment
 
-A 6DoF ballistic trajectory sim for testing flight controllers.
+A 6DoF active control testing suite for flight controllers.
 
 Copyright (c) 2026 Tyler Wiggins. All rights reserved.
 
