@@ -40,34 +40,39 @@ class Rocket {
     // counter to track once the rocket is dead how long it should stay existing before deleting itself
     double life_countdown = 30.0; // stays alive for n (sim) seconds before disappearing
 
-    // setup
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // setup                                                                                     //
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     Rocket(const std::string& name, double origin_latitude, double origin_longitude, double target_latitude,
            double target_longitude, const RocketProps& props, bool track_data, double export_interval);
     ~Rocket();
 
-    // rocket owns the flight controller state
-    Rocket(Rocket&&) = default;
-    Rocket& operator=(Rocket&&) = default;
-    Rocket(const Rocket&) = delete;
-    Rocket& operator=(const Rocket&) = delete;
-
-    // getters:
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // getters                                                                                   //
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     RocketState get_state() const;
     const std::string& get_name() const { return name; }
     bool is_detonated() { return detonated; }
     int active_stage_idx() const { return active_idx; } // index the fc's stage array with this
 
-    // setters (should only be used on setup)
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // setters                                                                                   //
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
     void set_pos(const Vec3& pos) { r = pos; } // set absolute position
     void set_orientation(const Quat& orient) { q_rocket = orient; } // set absolute orientation
     void set_drag_coeff(double drag_coeff) { props.Cd = drag_coeff; }
 
-    // simulation things
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // functions used by sim                                                                     //
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     void update_dynamics(double current_time);
     void update_mass();
     void update_flight_controller(double current_time);
 
-    // used by flight controller
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // functions used by flight controller                                                       //
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     void light_engine(); // should be used once per stage
     void cutoff_engine();
     void command_final_burn_fraction(double fraction); 
@@ -78,9 +83,14 @@ class Rocket {
     void rcs_apply_const_moment(Vec3 moment); // applies moment until changed
     void activate_detonation() { detonated = true; }
 
+    // rocket owns the flight controller state
+    Rocket(Rocket&&) = default;
+    Rocket& operator=(Rocket&&) = default;
+    Rocket(const Rocket&) = delete;
+    Rocket& operator=(const Rocket&) = delete;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    // private                                                                                    //
+    // private                                                                                   //
     ///////////////////////////////////////////////////////////////////////////////////////////////
     private:
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -117,15 +127,15 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // dynamic state                                                                             //
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    int active_idx = 0;         // index of the currently active stage
-    bool engine_locked = false; // once cut off, the active stage's motor cannot be relit until staged away
+    int active_idx = 0;          // index of the currently active stage
+    bool engine_locked = false;  // once cut off, the active stage's motor cannot be relit until staged away
     bool pending_cutoff = false; // a sub-step burn is finishing; thrust is zeroed at the start of the next step
 
     // mass properties
-    double m_current = 0;       // current total mass (kg)
-    double m_fuel_current = 0;  // current total fuel mass (kg)
-    Vec3 I_body = {0, 0, 0};    // moments of inertia about the combined CoM, body frame
-    double z_cm = 0;            // combined CoM along body +z, from the active stage's aft edge (m)
+    double m_current = 0;        // current total mass (kg)
+    double m_fuel_current = 0;   // current total fuel mass (kg)
+    Vec3 I_body = {0, 0, 0};     // moments of inertia about the combined CoM, body frame
+    double z_cm = 0;             // combined CoM along body +z, from the active stage's aft edge (m)
 
     // rcs system
     bool rcs_active = false;
@@ -149,7 +159,9 @@ class Rocket {
     // rocket explode button
     bool detonated = false;
 
-    // helper functions
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // helper functions                                                                                   //
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
     Vec3 engine_thrust_body(double thrust_scale) const;
     Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass);
