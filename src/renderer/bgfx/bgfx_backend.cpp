@@ -34,6 +34,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <future>
 #include <vector>
 
 #define STB_EASY_FONT_IMPLEMENTATION
@@ -537,12 +538,21 @@ void BgfxBackend::ensureEarth() {
     // the same offset hardcoded in fs_earth, fs_rocket and vs_terrain.
     const float kLonOffset = 0.5f;
     const uint64_t kEarthFlags = BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC;
-    earthColor_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Color-Map-32768x16384.dds", kEarthFlags);
+    // The maps are ~5 GB together. Read the files on worker threads while the bump
+    // map decodes here; the textures are then created on this thread, as bgfx runs
+    // single-threaded. Loading still finishes before this returns: the sim waits
+    // on the first frame and must see the finished height map.
+    struct EarthMap { bgfx::TextureHandle& tex; const char* path; std::future<bgfxutil::FileBlob> file; };
+    EarthMap maps[] = {
+        { earthColor_, "src/renderer/bgfx/Earth-Color-Map-32768x16384.dds", {} },
+        { earthNight_, "src/renderer/bgfx/Earth-Night-Map-32768x16384.dds", {} },
+        { earthEmiss_, "src/renderer/bgfx/Earth-Night-Emission-Map-32768x16384.dds", {} },  // white = light source strength
+        { earthCloud_, "src/renderer/bgfx/Earth-Cloud-Map-32768x16384.dds", {} },
+        { earthRough_, "src/renderer/bgfx/Earth-Roughness-Map-32768x16384.dds", {} },
+    };
+    for (EarthMap& m : maps) m.file = std::async(std::launch::async, bgfxutil::readFileBlob, m.path);
     EarthBumpMap::Get().Load("src/renderer/bgfx/Earth-Bump-Map-32768x16384.dds");
-    earthNight_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Night-Map-32768x16384.dds", kEarthFlags);
-    earthEmiss_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Night-Emission-Map-32768x16384.dds", kEarthFlags);  // white = light source strength
-    earthCloud_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Cloud-Map-32768x16384.dds", kEarthFlags);
-    earthRough_ = bgfxutil::loadTexture("src/renderer/bgfx/Earth-Roughness-Map-32768x16384.dds", kEarthFlags);
+    for (EarthMap& m : maps) m.tex = bgfxutil::createTexture(m.file.get(), m.path, kEarthFlags);
 
     // Sphere for the cloud shells. Denser than a plain textured sphere would need
     // so the per-vertex noise displacement resolves smoothly. 32-bit indices.
@@ -614,7 +624,7 @@ void BgfxBackend::DrawEarth(const EarthFrame& f) {
             bgfx::isValid(earthCloud_) ? earthCloud_ : white_,
         };
         float aspect = height_ > 0 ? (float)width_ / (float)height_ : 1.0f;
-        terrain_.Draw(f, cam_, aspect, far_, tex, EarthBumpMap::Get().Width(), EarthBumpMap::Get().Height());
+        terrain_.Draw(f, cam_, aspect, far_, tex, EarthBumpMap::Get().TextureWidth(), EarthBumpMap::Get().TextureHeight());
     }
     float depth[4] = { far_, 0, 0, 0 };
 

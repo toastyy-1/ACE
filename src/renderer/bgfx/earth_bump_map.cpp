@@ -28,34 +28,63 @@ long clamp_row(long y, long h) {
 }
 
 void EarthBumpMap::Load(const char* path) {
-    std::vector<uint8_t> data = bgfxutil::readFile(path);
-    if (data.empty()) { std::fprintf(stderr, "EarthBumpMap: missing %s\n", path); return; }
+    bgfxutil::FileBlob blob = bgfxutil::readFileBlob(path);
+    if (!blob) { std::fprintf(stderr, "EarthBumpMap: missing %s\n", path); return; }
 
+    // DDS/KTX parse header-only, so mip 0 is decoded straight out of the file
+    // buffer; other formats (PNG, ...) need bimg's decoding parse into a copy.
     bx::AllocatorI* alloc = bgfxutil::allocator();
-    bimg::ImageContainer* ic = bimg::imageParse(alloc, data.data(), (uint32_t)data.size());
-    if (!ic) { std::fprintf(stderr, "EarthBumpMap: parse failed %s\n", path); return; }
+    bimg::ImageContainer  hdr;
+    bimg::ImageContainer* decoded = nullptr;
+    const bimg::ImageContainer* ic = &hdr;
+    const void* data = blob.data.get();
+    uint32_t    size = blob.size;
+    if (!bimg::imageParse(hdr, data, size)) {
+        decoded = bimg::imageParse(alloc, data, size);
+        if (!decoded) { std::fprintf(stderr, "EarthBumpMap: parse failed %s\n", path); return; }
+        ic = decoded; data = decoded->m_data; size = decoded->m_size;
+    }
 
-    if (bimg::ImageMip mip; bimg::imageGetRawData(*ic, 0, 0, ic->m_data, ic->m_size, mip)) {
+    if (bimg::ImageMip mip; bimg::imageGetRawData(*ic, 0, 0, data, size, mip)) {
         w_ = mip.m_width;
         h_ = mip.m_height;
         heights_.resize((size_t)w_ * h_);
-        const uint32_t kStrip = 512;
-        for (uint32_t y = 0; y < h_; y += kStrip) {
-            uint32_t hs = std::min(kStrip, h_ - y);
-            const uint8_t* src = mip.m_data + (size_t)y * w_;
-            uint8_t*       dst = heights_.data() + (size_t)y * w_;
-            bimg::imageDecodeToR8(alloc, dst, src, w_, hs, 1, w_, mip.m_format);
+        const auto fmt = (bimg::TextureFormat::Enum)mip.m_format;
+        const bimg::ImageBlockInfo& block = bimg::getBlockInfo(fmt);
+        if (bimg::isCompressed(fmt) && block.blockWidth == 4 && block.blockHeight == 4
+            && w_ % 4 == 0 && h_ % 4 == 0) {
+            // bimg's imageDecodeToR8 sends every texel through a float RGBA
+            // unpack/pack by function pointer on one thread, which took 4-7 s here.
+            // Decoding rows of 4x4 blocks to RGBA8 on every core and keeping R gives
+            // the same bytes (the RGBA8 -> R8 step is exact) in a fraction of that.
+            const uint32_t kBlockRows = 16;
+            const size_t   blockRowBytes = (size_t)(w_ / 4) * block.blockSize;
+            bgfxutil::parallelFor(h_ / 4, [&](uint32_t r0, uint32_t r1) {
+                std::vector<uint8_t> rgba((size_t)w_ * 4 * 4 * kBlockRows);
+                for (uint32_t r = r0; r < r1; r += kBlockRows) {
+                    const uint32_t rows = std::min(kBlockRows, r1 - r) * 4;
+                    bimg::imageDecodeToRgba8(alloc, rgba.data(), mip.m_data + r * blockRowBytes, w_, rows, w_ * 4, fmt);
+                    uint8_t* dst = heights_.data() + (size_t)r * 4 * w_;
+                    for (size_t i = 0, n = (size_t)w_ * rows; i < n; ++i) dst[i] = rgba[i * 4];
+                }
+            });
+        } else {
+            const uint32_t kStrip = 512;
+            for (uint32_t y = 0; y < h_; y += kStrip) {
+                uint32_t hs = std::min(kStrip, h_ - y);
+                const uint8_t* src = mip.m_data + (size_t)y * w_;
+                uint8_t*       dst = heights_.data() + (size_t)y * w_;
+                bimg::imageDecodeToR8(alloc, dst, src, w_, hs, 1, w_, mip.m_format);
+            }
         }
         uploadHeights();
     } else {
         // Couldn't find mip 0: leave heights empty, but still show the relief.
         std::fprintf(stderr, "EarthBumpMap: imageGetRawData failed %s\n", path);
-        tex_ = bgfx::createTexture2D(
-            (uint16_t)ic->m_width, (uint16_t)ic->m_height, ic->m_numMips > 1, ic->m_numLayers,
-            (bgfx::TextureFormat::Enum)ic->m_format, kSamplerFlags, bgfx::copy(ic->m_data, ic->m_size));
+        tex_ = bgfxutil::createTexture(std::move(blob), path, kSamplerFlags);
     }
 
-    bimg::imageFree(ic);
+    if (decoded) bimg::imageFree(decoded);
 }
 
 void EarthBumpMap::uploadHeights() {
@@ -63,36 +92,52 @@ void EarthBumpMap::uploadHeights() {
     // than the DDS's compressed blocks: a GPU block decode can land a code value
     // off bimg's (~35 m of terrain), and the terrain shader relies on the rendered
     // ground being the sim's ground. Mips are a 2x2 box filter of that same data.
+    //
+    // On a GPU that can't hold the full map (the 32768-wide map is over the 16384
+    // limit of most integrated GPUs) the top mips stay CPU-only: the sim still uses
+    // full-res heights, the rendered ground is the box-filtered version of them.
+    const uint32_t skip = bgfxutil::mipsToSkip(w_, h_);
     uint32_t mips = 1;
-    size_t   total = 0;
+    size_t   total = 0, skipped = 0;
     for (uint32_t w = w_, h = h_; ; ++mips) {
-        total += (size_t)w * h;
+        (mips <= skip ? skipped : total) += (size_t)w * h;
         if (w == 1 && h == 1) break;
         w = std::max(1u, w / 2);
         h = std::max(1u, h / 2);
     }
+    if (skip >= mips) { std::fprintf(stderr, "EarthBumpMap: texture limit too small\n"); return; }
 
+    // Levels 1..skip-1 are only needed to build the next level, so go to scratch.
     const bgfx::Memory* mem = bgfx::alloc((uint32_t)total);
-    std::memcpy(mem->data, heights_.data(), heights_.size());
-    const uint8_t* src = mem->data;
-    uint8_t*       dst = mem->data + heights_.size();
+    std::vector<uint8_t> scratch(skip > 1 ? skipped - heights_.size() : 0);
+    if (skip == 0) std::memcpy(mem->data, heights_.data(), heights_.size());
+    const uint8_t* src = heights_.data();
+    uint8_t*       dst = skip > 1 ? scratch.data() : mem->data + (skip == 0 ? heights_.size() : 0);
     uint32_t sw = w_, sh = h_;
     for (uint32_t m = 1; m < mips; ++m) {
         uint32_t dw = std::max(1u, sw / 2), dh = std::max(1u, sh / 2);
-        for (uint32_t y = 0; y < dh; ++y) {
-            const uint8_t* r0 = src + (size_t)std::min(2 * y,     sh - 1) * sw;
-            const uint8_t* r1 = src + (size_t)std::min(2 * y + 1, sh - 1) * sw;
-            for (uint32_t x = 0; x < dw; ++x) {
-                uint32_t x0 = std::min(2 * x, sw - 1), x1 = std::min(2 * x + 1, sw - 1);
-                dst[(size_t)y * dw + x] = (uint8_t)((r0[x0] + r0[x1] + r1[x0] + r1[x1] + 2) / 4);
+        bgfxutil::parallelFor(dh, [&](uint32_t y0, uint32_t y1) {
+            for (uint32_t y = y0; y < y1; ++y) {
+                const uint8_t* r0 = src + (size_t)std::min(2 * y,     sh - 1) * sw;
+                const uint8_t* r1 = src + (size_t)std::min(2 * y + 1, sh - 1) * sw;
+                for (uint32_t x = 0; x < dw; ++x) {
+                    uint32_t x0 = std::min(2 * x, sw - 1), x1 = std::min(2 * x + 1, sw - 1);
+                    dst[(size_t)y * dw + x] = (uint8_t)((r0[x0] + r0[x1] + r1[x0] + r1[x1] + 2) / 4);
+                }
             }
-        }
+        });
         src = dst;
         dst += (size_t)dw * dh;
+        if (m + 1 == skip) dst = mem->data;   // next level is the GPU's level 0
         sw = dw; sh = dh;
     }
 
-    tex_ = bgfx::createTexture2D((uint16_t)w_, (uint16_t)h_, true, 1, bgfx::TextureFormat::R8,
+    texW_ = std::max(1u, w_ >> skip);
+    texH_ = std::max(1u, h_ >> skip);
+    if (skip > 0)
+        std::fprintf(stderr, "EarthBumpMap: %ux%u is above the %u texture limit; rendering %ux%u\n",
+                     w_, h_, bgfxutil::maxTextureSize(), texW_, texH_);
+    tex_ = bgfx::createTexture2D((uint16_t)texW_, (uint16_t)texH_, true, 1, bgfx::TextureFormat::R8,
                                  kSamplerFlags, mem);
 }
 
@@ -101,7 +146,7 @@ void EarthBumpMap::Destroy() {
     tex_ = BGFX_INVALID_HANDLE;
     heights_.clear();
     heights_.shrink_to_fit();
-    w_ = h_ = 0;
+    w_ = h_ = texW_ = texH_ = 0;
 }
 
 double EarthBumpMap::sampleHeight01(const Vec3& r) const {

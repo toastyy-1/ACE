@@ -1,4 +1,5 @@
 #include "terrain_detail.hpp"
+#include "bgfx_util.hpp"
 #include "../../constants.hpp"
 
 #include <algorithm>
@@ -112,16 +113,20 @@ void TerrainDetail::Create() {
 
     const size_t n = (size_t)kSize * kSize;
     std::vector<float> soil(n), rock(n), sand(n), snow(n);
-    for (int y = 0; y < kSize; ++y) {
-        for (int x = 0; x < kSize; ++x) {
-            float  u = (x + 0.5f) / kSize, v = (y + 0.5f) / kSize;
-            size_t i = (size_t)y * kSize + x;
-            soil[i] = soilSignal(u, v);
-            rock[i] = rockSignal(u, v);
-            sand[i] = sandSignal(u, v);
-            snow[i] = snowSignal(u, v);
+    // ~40 noise octaves per texel: split the rows across cores (each texel is
+    // independent, so the result doesn't depend on the split).
+    bgfxutil::parallelFor(kSize, [&](uint32_t y0, uint32_t y1) {
+        for (int y = (int)y0; y < (int)y1; ++y) {
+            for (int x = 0; x < kSize; ++x) {
+                float  u = (x + 0.5f) / kSize, v = (y + 0.5f) / kSize;
+                size_t i = (size_t)y * kSize + x;
+                soil[i] = soilSignal(u, v);
+                rock[i] = rockSignal(u, v);
+                sand[i] = sandSignal(u, v);
+                snow[i] = snowSignal(u, v);
+            }
         }
-    }
+    });
     normaliseChannel(soil);
     normaliseChannel(rock);
     normaliseChannel(sand);

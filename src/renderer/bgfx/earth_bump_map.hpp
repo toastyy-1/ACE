@@ -25,6 +25,9 @@ public:
     // Height map size in texels (equirectangular: width spans longitude).
     uint32_t Width() const  { return w_; }
     uint32_t Height() const { return h_; }
+    // Size of Texture()'s level 0: smaller than the map when the GPU can't hold it.
+    uint32_t TextureWidth() const  { return texW_; }
+    uint32_t TextureHeight() const { return texH_; }
 
     double SurfaceRadius3D(const Vec3& r) const;
 
@@ -41,6 +44,7 @@ private:
     bgfx::TextureHandle  tex_ = BGFX_INVALID_HANDLE;
     std::vector<uint8_t> heights_;
     uint32_t w_ = 0, h_ = 0;
+    uint32_t texW_ = 0, texH_ = 0;
 };
 
 }
