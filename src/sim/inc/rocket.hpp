@@ -173,11 +173,11 @@ class Rocket {
 
     // applies translational acceleration components
     Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props); // gravity + drag + thrust, ECI
-        Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass, const RocketProps& props);
+        Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double mass, const RocketProps& props);
 
 
     // coordinate system conversion helpers
-    Vec3 nose_direction_eci();
+    Vec3 nose_direction_eci(const Quat& q) const;
     Vec3 lat_lon_to_ecef(double latitude_deg, double longitude_deg);
 
     // rocket state helpers

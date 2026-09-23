@@ -28,7 +28,7 @@ struct Vec3 {
     }
 };
 
-// ECEF <-> ECI conversions (frames coincide at t = 0, ECEF spins about +z)
+// ECEF and ECI conversions
 inline Vec3 ecef_to_eci(const Vec3& p, double t) {
     double theta = EARTH_ROTATION_RATE * t;
     double c = std::cos(theta), s = std::sin(theta);
@@ -39,7 +39,7 @@ inline Vec3 eci_to_ecef(const Vec3& p, double t) {
     return ecef_to_eci(p, -t);
 }
 
-// inertial velocity of a point fixed to the spinning earth (w_earth x r)
+// inertial velocity of a point fixed to the spinning earth
 inline Vec3 surface_velocity_eci(const Vec3& r_eci) {
     return {-EARTH_ROTATION_RATE * r_eci.y, EARTH_ROTATION_RATE * r_eci.x, 0.0};
 }

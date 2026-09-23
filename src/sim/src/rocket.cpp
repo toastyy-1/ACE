@@ -118,10 +118,10 @@ static Vec3 nose_from_quat(const Quat& q) {
 }
 
 /**
- * @return the rocket's nose direction in ECI frame coordinates
+ * @return the rocket's nose direction in ECI frame coordinates for an attitude q
  */
-Vec3 Rocket::nose_direction_eci() {
-    return nose_from_quat(q_rocket);
+Vec3 Rocket::nose_direction_eci(const Quat& q) const {
+    return nose_from_quat(q);
 }
 
 /**
@@ -369,7 +369,7 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
  * translational acceleration in the ECI frame
  */
 Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props) {
-    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
+    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, q_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
 }
 
 /**
@@ -506,7 +506,7 @@ void Rocket::update_dynamics(double current_time) {
     }
     else {
         // calculate RK4 total acceleration vector
-        a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end, props);
+        a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, q_rocket, m_end, props);
     }
 
     // accelerometer measures everything except gravity, in the body frame

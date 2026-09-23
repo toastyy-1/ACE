@@ -15,7 +15,7 @@ rockets:
     target_lon: 43.3
 
     radius: 0.835 # radius of the rocket (cylinder)
-    drag_coefficient: 0.0
+    nosecone_length: 3.0
     no_fc: false # if true, this rocket spawns without a flight controller (no guidance/autopilot)
 
     stage:
