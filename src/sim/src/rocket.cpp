@@ -187,7 +187,7 @@ static double exp_dens(double altitude, double& T, double rho_b, double T_b, dou
 /**
  * standard atmosphere layers
  */
-void atmosphere(double altitude, double& air_density, double& air_pressure) {
+void atmosphere(double altitude, double& air_density, double& air_pressure, double& speed_of_sound, double& mu) {
     double T = 288.15; // layer temperature, set by whichever branch runs
 
     // troposphere
@@ -224,6 +224,8 @@ void atmosphere(double altitude, double& air_density, double& air_pressure) {
     }
 
     air_pressure = air_density * R_d * T;
+    speed_of_sound = sqrt(1.4 * R_d * T);
+    mu = 1.458e-6 * pow(T, 1.5) / (T + 110.4);
 }
 
 /**
@@ -250,7 +252,7 @@ static Quat quat_deriv(const Quat& q, const Vec3& w) {
 /**
  * length of the remaining stack from the nose to the aft end of the active stage
  */
-double Rocket::rocket_length() const {
+double Rocket::rocket_body_length() const {
     double length = 0;
     for (int i = active_idx; i < num_stages(); i++) {
         length += props.stages[i].tip_to_end_length;
@@ -265,7 +267,7 @@ bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
     double r_norm = r.mag();
 
     // find rocket length
-    double rocket_length = this->rocket_length();
+    double rocket_length = this->rocket_body_length();
 
     // if its greater than the length of  the rocket, its not worth checking at all lol
     if (com_dist_from_gnd > rocket_length) {
@@ -320,7 +322,7 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     double cos_angle_to_gnd = up_body.z; // body +z is the nose
 
     // contact point is the lowest end of the rocket
-    Vec3 r_contact_from_cm = {0, 0, cos_angle_to_gnd >= 0.0 ? -z_cm : rocket_length() - z_cm};
+    Vec3 r_contact_from_cm = {0, 0, cos_angle_to_gnd >= 0.0 ? -z_cm : rocket_body_length() - z_cm};
     double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
     if (sin_angle_to_gnd > 0) {
         r_contact_from_cm.x = -up_body.x * props.radius / sin_angle_to_gnd;
@@ -366,8 +368,8 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
 /**
  * translational acceleration in the ECI frame
  */
-Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body) {
-    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i) + rotate_by_quat(q_i, thrust_body) / m_i;
+Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props) {
+    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
 }
 
 /**
@@ -392,8 +394,8 @@ void Rocket::update_dynamics(double current_time) {
     }
 
     // adjust thrust for isp change
-    double air_density, air_pressure;
-    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure);
+    double air_density, air_pressure, speed_of_sound, mu;
+    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure, speed_of_sound, mu);
     double thrust_scale;
     if (s.isp > 0) {
         thrust_scale = s.isp_at(air_pressure) / s.isp;
@@ -418,7 +420,7 @@ void Rocket::update_dynamics(double current_time) {
     // k1 terms                       //
     ////////////////////////////////////
     Vec3 k1_r = v;
-    Vec3 k1_v = translational_accel(m, r, v, q_rocket, thrust_body);
+    Vec3 k1_v = translational_accel(m, r, v, q_rocket, thrust_body, props);
     Vec3 k1_w = ang_accel(w, I, net_torque);
     Quat k1_q = quat_deriv(q_rocket, w);
 
@@ -430,7 +432,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w2 = w + k1_w * (dt / 2);
     Quat q2 = q_rocket + k1_q * (dt / 2);
     Vec3 k2_r = v2;
-    Vec3 k2_v = translational_accel(m_mid, r2, v2, q2, thrust_body);
+    Vec3 k2_v = translational_accel(m_mid, r2, v2, q2, thrust_body, props);
     Vec3 k2_w = ang_accel(w2, I, net_torque);
     Quat k2_q = quat_deriv(q2, w2);
 
@@ -442,7 +444,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w3 = w + k2_w * (dt / 2);
     Quat q3 = q_rocket + k2_q * (dt / 2);
     Vec3 k3_r = v3;
-    Vec3 k3_v = translational_accel(m_mid, r3, v3, q3, thrust_body);
+    Vec3 k3_v = translational_accel(m_mid, r3, v3, q3, thrust_body, props);
     Vec3 k3_w = ang_accel(w3, I, net_torque);
     Quat k3_q = quat_deriv(q3, w3);
 
@@ -454,7 +456,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w4 = w + k3_w * dt;
     Quat q4 = q_rocket + k3_q * dt;
     Vec3 k4_r = v4;
-    Vec3 k4_v = translational_accel(m_end, r4, v4, q4, thrust_body);
+    Vec3 k4_v = translational_accel(m_end, r4, v4, q4, thrust_body, props);
     Vec3 k4_w = ang_accel(w4, I, net_torque);
     Quat k4_q = quat_deriv(q4, w4);
 
@@ -504,7 +506,7 @@ void Rocket::update_dynamics(double current_time) {
     }
     else {
         // calculate RK4 total acceleration vector
-        a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end);
+        a = g_end + rotate_by_quat(q_rocket, thrust_body) / m_end + calc_drag_accel(r, v, m_end, props);
     }
 
     // accelerometer measures everything except gravity, in the body frame

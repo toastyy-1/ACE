@@ -61,7 +61,6 @@ class Rocket {
 
     void set_pos(const Vec3& pos) { r = pos; } // set absolute position
     void set_orientation(const Quat& orient) { q_rocket = orient; } // set absolute orientation
-    void set_drag_coeff(double drag_coeff) { props.Cd = drag_coeff; }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // functions used by sim                                                                     //
@@ -107,6 +106,7 @@ class Rocket {
     bool fc_started = false;
     double fc_last_time = 0.0;
 
+    // applies the commands sent by the FC through the API
     void apply_fc_commands();
 
     // topography
@@ -115,7 +115,7 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // rocket static configuration                                                               //
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    RocketProps props;
+    RocketProps props; // geometric properties of the rocket, set by the config
     std::string name;
 
     // flight data csv writer
@@ -136,6 +136,7 @@ class Rocket {
     double m_fuel_current = 0;   // current total fuel mass (kg)
     Vec3 I_body = {0, 0, 0};     // moments of inertia about the combined CoM, body frame
     double z_cm = 0;             // combined CoM along body +z, from the active stage's aft edge (m)
+    double z_cp = 0;             // center of pressure along the body +z (m)
 
     // rcs system
     bool rcs_active = false;
@@ -167,19 +168,22 @@ class Rocket {
     
     // kinematic helpers
     Vec3 engine_thrust_body(double thrust_scale) const;
-    Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass);
-    Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body); // gravity + drag + thrust, ECI
     Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
+
+    // applies translational acceleration components
+    Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props); // gravity + drag + thrust, ECI
+        Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, double mass, const RocketProps& props);
+
 
     // coordinate system conversion helpers
     Vec3 nose_direction_eci();
     Vec3 lat_lon_to_ecef(double latitude_deg, double longitude_deg);
 
     // rocket state helpers
-    double rocket_length() const; // nose to aft end of the remaining stack (m)
+    double rocket_body_length() const; // nose to aft end of the remaining stack (m)
     bool is_rocket_on_ground(double com_dist_from_gnd); // snaps the rocket onto the surface if it is touching the ground
 };
 
-// standard atmosphere layers (air density/pressure at a given altitude above sea level)
-void atmosphere(double altitude, double& air_density, double& air_pressure);
+// standard atmosphere layers (air density/pressure, speed of sound, and dynamic viscosity mu at a given altitude above sea level)
+void atmosphere(double altitude, double& air_density, double& air_pressure, double& speed_of_sound, double& mu);
