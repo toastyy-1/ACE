@@ -2,8 +2,6 @@
 
 A 6DoF active control testing suite for flight controllers.
 
-Copyright (c) 2026 Tyler Wiggins. All rights reserved.
-
 ---
 
 ## 1. Dependencies
