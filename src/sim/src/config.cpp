@@ -4,6 +4,15 @@
 #include <iostream>
 #include <stdexcept>
 
+// @todo add doc
+/**
+ * @brief
+ * @tparam T
+ * @param n
+ * @param key
+ * @param fallback
+ * @return
+ */
 template <typename T>
 static T value_or(const fkyaml::node& n, const char* key, T fallback) {
     if (n.is_mapping() && n.contains(key)) {
@@ -15,6 +24,12 @@ static T value_or(const fkyaml::node& n, const char* key, T fallback) {
     return fallback;
 }
 
+// @todo add doc
+/**
+ * @brief
+ * @param path
+ * @return
+ */
 SimConfig load_sim_config(const std::string& path) {
     // parse the yaml file
     fkyaml::node root;

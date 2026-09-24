@@ -11,11 +11,21 @@
 
 namespace sim {
 
+    /**
+     * @brief initial constsructor for the sim, starts time at 0
+     */
     Sim::Sim() {
         t = 0.0; // start at time 0
     }
+    /**
+     * @brief destructor for the sim
+     */
     Sim::~Sim() {}
 
+    /**
+     * @brief runs the simulation. everything. literally the entire simulation is run in this one function! it drives the time step
+     * @param renderer_ready true if the renderer is ready and loaded and can let the sim start!
+     */
     void Sim::Run(std::function<bool()> renderer_ready) {
         // wait for the renderer to load terrain before placing rockets
         while (running.load() && renderer_ready && !renderer_ready()) {
@@ -90,6 +100,10 @@ namespace sim {
         publish_sim_states(rocket_list); // final states
     }
 
+    /**
+     * @brief publishes the current states of all objects in the sim to the renderer and other such things that might use it
+     * @param rocket_list
+     */
     void Sim::publish_sim_states(const std::vector<Rocket>& rocket_list) {
         scratch_states.clear();
         scratch_states.reserve(rocket_list.size());

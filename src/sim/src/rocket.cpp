@@ -6,6 +6,17 @@
 #include <filesystem>
 #include <iostream>
 
+/**
+ * @brief
+ * @param rocket_name name identifier of the rocket
+ * @param origin_latitude latitude of which the rocket starts
+ * @param origin_longitude longitude of which the rocket starts
+ * @param target_latitude lat of which the rocket is planned to land
+ * @param target_longitude long of which the rocket is planned to land
+ * @param rocket_props property struct defining geometry/characteristics of the rocket
+ * @param track_data true if data is to be logged to a csv
+ * @param export_interval how often that data should be logged
+ */
 Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double origin_longitude, double target_latitude,
                double target_longitude, const RocketProps& rocket_props, bool track_data, double export_interval) {
     set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
@@ -18,6 +29,9 @@ Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double or
     }
 }
 
+/**
+ * @brief constructor
+ */
 Rocket::~Rocket() {
     // default destructor
 }
@@ -25,6 +39,7 @@ Rocket::~Rocket() {
 
 /**
  * gets the current state of the rocket, mainly used for graphics
+ * @return state struct of the rocket
  */
 RocketState Rocket::get_state() const {
     double length = 0;
@@ -55,7 +70,7 @@ RocketState Rocket::get_state() const {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * updates the fuel mass based on the current rocket states
+ * @brief updates the fuel mass based on the current rocket states
  */
 void Rocket::update_mass() {
     // dry structure and propellant are tracked separately so the CoM migrates as the tanks drain
@@ -87,6 +102,12 @@ void Rocket::update_mass() {
     I_body = { I_trans, I_trans, 0.5 * R2 * M };
 }
 
+/**
+ * @brief
+ * @param latitude_deg latitude input in degrees
+ * @param longitude_deg longitude input in degrees
+ * @return ecef coordinate vector corresponding to the input coordinates
+ */
 Vec3 Rocket::lat_lon_to_ecef(double latitude_deg, double longitude_deg) {
     double lat = latitude_deg * M_PI / 180.0;
     double lon = longitude_deg * M_PI / 180.0;
@@ -100,6 +121,9 @@ Vec3 Rocket::lat_lon_to_ecef(double latitude_deg, double longitude_deg) {
 
 /** 
  * rotate a vector by a quaternion
+ * @param q quaternion to rotate
+ * @param u vector that is rotated
+ * @return
 */
 static Vec3 rotate_by_quat(const Quat& q, const Vec3& u) {
     Vec3 q_vec = {q.x, q.y, q.z};
@@ -108,6 +132,8 @@ static Vec3 rotate_by_quat(const Quat& q, const Vec3& u) {
 }
 /**
  * nose direction rotated into the ECI frame from an attitude
+ * @param q nose direction quaternion
+ * @return nose direction vector in ECI
  */
 static Vec3 nose_from_quat(const Quat& q) {
     return {
@@ -119,6 +145,7 @@ static Vec3 nose_from_quat(const Quat& q) {
 
 /**
  * @return the rocket's nose direction in ECI frame coordinates for an attitude q
+ * @param q nose direction quaternion
  */
 Vec3 Rocket::nose_direction_eci(const Quat& q) const {
     return nose_from_quat(q);
@@ -127,6 +154,7 @@ Vec3 Rocket::nose_direction_eci(const Quat& q) const {
 /**
  * gimbaled thrust vector in the body frame
  * @param thrust_scale isp change as pressure changes
+ * @return thrust force vector in the body frame, pointing along the nozzle axis after gimbal and scaled by thrust_scale
  */
 Vec3 Rocket::engine_thrust_body(double thrust_scale) const {
     Vec3 nose_body = {0, 0, 1};
@@ -136,6 +164,7 @@ Vec3 Rocket::engine_thrust_body(double thrust_scale) const {
 /**
  * net torque about the combined CopM in body frame
  * @param thrust_scale isp change as pressure changes
+ * @return the net torque about the body's center of mass as applied by the nozzle's thrust
  */
 Vec3 Rocket::net_body_torque(double thrust_scale) const {
     Vec3 net_torque = {0, 0, 0};
@@ -152,6 +181,8 @@ Vec3 Rocket::net_body_torque(double thrust_scale) const {
 
 /**
  * gravitational acceleration in the ECI frame
+ * @param r current position
+ * @return gravitational acceleration vector (m/s^2)
  */
 Vec3 Rocket::calc_gravity_accel(const Vec3& r) {
     double r2       = r.dot(r);
@@ -173,6 +204,13 @@ Vec3 Rocket::calc_gravity_accel(const Vec3& r) {
 
 /**
  * power relationship density equation, sets T to the layer temperature
+ * @param altitude altitude above the surface (m)
+ * @param T output, air temperature at this altitude (K)
+ * @param rho_b air density at the base of the layer (kg/m^3)
+ * @param T_b air temperature at the base of the layer (K)
+ * @param L temperature lapse rate in the layer, change in temperature per meter of altitude (K/m)
+ * @param layer_base_alt altitude of the base of the layer (m)
+ * @return air density at this altitude (kg/m^3)
  */
 static double pow_dens(double altitude, double& T, double rho_b, double T_b, double L, double layer_base_alt) {
     T = T_b + L * (altitude - layer_base_alt);
@@ -181,6 +219,12 @@ static double pow_dens(double altitude, double& T, double rho_b, double T_b, dou
 
 /**
  * exponential relationship density equation, sets T to the layer temperature
+ * @param altitude altitude above the surface (m)
+ * @param T output, air temperature at this altitude, constant across an isothermal layer (K)
+ * @param rho_b air density at the base of the layer (kg/m^3)
+ * @param T_b air temperature throughout the layer (K)
+ * @param layer_base_alt altitude of the base of the layer (m)
+ * @return air density at this altitude (kg/m^3)
  */
 static double exp_dens(double altitude, double& T, double rho_b, double T_b, double layer_base_alt) {
     T = T_b;
@@ -189,6 +233,11 @@ static double exp_dens(double altitude, double& T, double rho_b, double T_b, dou
 
 /**
  * standard atmosphere layers
+ * @param altitude altitude above the surface (m)
+ * @param air_density output, air density (kg/m^3)
+ * @param air_pressure output, static air pressure (Pa)
+ * @param speed_of_sound output, speed of sound in the air (m/s)
+ * @param mu output, dynamic viscosity of the air from Sutherland's law (Pa*s)
  */
 void atmosphere(double altitude, double& air_density, double& air_pressure, double& speed_of_sound, double& mu) {
     double T = 288.15; // layer temperature, set by whichever branch runs
@@ -233,6 +282,10 @@ void atmosphere(double altitude, double& air_density, double& air_pressure, doub
 
 /**
  * angular acceleration in the body frame
+ * @param w_i angular velocity of the body in the body frame
+ * @param I moments of inertia about the body axes
+ * @param net_torque net torque on the body in the body frame
+ * @return angular acceleration in the body frame
  */
 static Vec3 ang_accel(const Vec3& w_i, const Vec3& I, const Vec3& net_torque) {
     Vec3 Iw = {I.x * w_i.x, I.y * w_i.y, I.z * w_i.z};
@@ -246,6 +299,9 @@ static Vec3 ang_accel(const Vec3& w_i, const Vec3& I, const Vec3& net_torque) {
 
 /**
  * calculates time derivative of input quaternion given current orientation
+ * @param q 
+ * @param w
+ * @return
  */
 static Quat quat_deriv(const Quat& q, const Vec3& w) {
     Quat omega = {0.0, w.x, w.y, w.z};
@@ -253,7 +309,8 @@ static Quat quat_deriv(const Quat& q, const Vec3& w) {
 }
 
 /**
- * length of the remaining stack from the nose to the aft end of the active stage
+ * length of the remaining stack from the front tank to the aft end of the active stage
+ * @return the body lenght of the rocket (m) not including the nosecone
  */
 double Rocket::rocket_body_length() const {
     double length = 0;
@@ -265,6 +322,8 @@ double Rocket::rocket_body_length() const {
 
 /**
  * checks if the rocket is on the ground
+ * @param com_dist_from_gnd the rocket's center of mass's distance from the ground
+ * @return if the rocket is touching the ground
  */
 bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
     double r_norm = r.mag();
@@ -304,6 +363,11 @@ bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
 
 /**
  * change in contact point velocity from an impulse J applied there (body frame)
+ * @param r_c position of the contact point relative to the center of mass, in the body frame
+ * @param J impulse applied at the contact point, in the body frame
+ * @param I principal moments of inertia about the body axes
+ * @param m mass of the rocket
+ * @return change in velocity of the contact point in the body frame
  */
 static Vec3 contact_vel_change(const Vec3& r_c, const Vec3& J, const Vec3& I, double m) {
     Vec3 ang = r_c.cross(J);
@@ -313,6 +377,9 @@ static Vec3 contact_vel_change(const Vec3& r_c, const Vec3& J, const Vec3& I, do
 
 /**
  * specific ground dynamics are applied when the rocket is on the ground
+ * @param I moment of inertia of the vehicle at the current state
+ * @param m_end the current mass at the final step of rk4
+ * @param dt time step
  */
 void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     // the ground supplies whatever force keeps the rocket riding along with the surface
@@ -370,6 +437,13 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
 
 /**
  * translational acceleration in the ECI frame
+ * @param m_i mass
+ * @param r_i position in ECI
+ * @param v_i velocity in ECI
+ * @param q_i body orientation
+ * @param thrust_body thrust force in the body frame
+ * @param props rocket geometry
+ * @return acceleration in ECI
  */
 Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props) {
     return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, q_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
@@ -378,6 +452,7 @@ Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, c
 /**
  * the most important function for the dynamics calculations. 
  * calculates all dynamics of the rocket using RK4
+ * @param current_time simulation time
  */
 void Rocket::update_dynamics(double current_time) {
     // rocket mass
@@ -546,6 +621,10 @@ void Rocket::update_dynamics(double current_time) {
 
 /**
  * sets the starting position of the rocket on the earth with coordinates
+ * @param origin_latitude 
+ * @param origin_longitude
+ * @param target_latitude
+ * @param target_longitude
  */
 void Rocket::set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude) {
     Vec3 origin_pos = lat_lon_to_ecef(origin_latitude, origin_longitude);

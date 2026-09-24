@@ -9,6 +9,7 @@
 
 /**
  * hands the sensors to whatever thing implements fc_api.h and applies what it asked for
+ * @param current_time current simulation time at a given iteration
  */
 void Rocket::update_flight_controller(double current_time) {
     if (pending_cutoff) { active_stage().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
@@ -76,7 +77,7 @@ void Rocket::update_flight_controller(double current_time) {
 }
 
 /**
- * apply a step's worth of buffered commands
+ * @brief apply a step's worth of buffered commands
  */
 void Rocket::apply_fc_commands() {
     // a nonzero cutoff_fraction burns that much of this step before the cutoff
@@ -100,6 +101,10 @@ void Rocket::apply_fc_commands() {
     }
 }
 
+/**
+ * @brief advances the rocket's stage to the next in the stack
+ * @return if successful, return true
+ */
 bool Rocket::advance_stage() {
     if (active_idx + 1 < num_stages()) {
         active_idx++;
@@ -110,7 +115,7 @@ bool Rocket::advance_stage() {
 }
 
 /**
- * control lighting the engine on the current active stage
+ * @brief control lighting the engine on the current active stage
  */
 void Rocket::light_engine() {
     if (engine_locked) return; // motor was cut off and cannot be relit on this stage
@@ -120,7 +125,7 @@ void Rocket::light_engine() {
 }
 
 /**
- * permanently terminates thrust on the active stage, kills motor real dead
+ * @brief permanently terminates thrust on the active stage, kills motor real dead
  */
 void Rocket::cutoff_engine() {
     active_stage().thrust = 0;
@@ -132,6 +137,7 @@ void Rocket::cutoff_engine() {
  * TREAT THIS LIKE A DEV FEATURE -- this type of thing isnt real irl so kind of ignore it
  * when analysing the program to learn about guidance shit. this is only to make the rocket
  * fc think that time is infinitely coarse instead of whatever TIME_STEP is (I hope ts makes sense)
+ * @param fraction the fraction [0,1] of a step the rocket should burn for
  */
 void Rocket::command_final_burn_fraction(double fraction) {
     if (engine_locked) return;
@@ -144,6 +150,7 @@ void Rocket::command_final_burn_fraction(double fraction) {
 /**
  * tells the RCS system that it should apply a moment to the center of mass of the rocket body according to the input
  * if the applied moment is greater than possible by the RCS system it will just max out the moments
+ * @param m moment to apply to the rocket body about the CoM
  */
 void Rocket::rcs_apply_const_moment(Vec3 m) {
     Vec3 applied_moment = m;
@@ -156,6 +163,7 @@ void Rocket::rcs_apply_const_moment(Vec3 m) {
 
 /**
  * sets the orientation of the rocket nozzle for gimbaling purposes
+ * @param orientation the quaternion orientation relative to the body frame, with the unit q facing aft of the body (-z)
  */
 void Rocket::set_engine_orientation(Quat orientation) {
     // normalize input

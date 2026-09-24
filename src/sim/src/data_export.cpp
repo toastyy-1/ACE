@@ -3,6 +3,11 @@
 
 static constexpr size_t FILE_BUFFER_SIZE = 1 << 20;
 
+/**
+ * @brief
+ * @param filename name of the file to export
+ * @param interval how often (in seconds of sim time) a new line is expected to export
+ */
 DataExport::DataExport(const std::string& filename, double interval) : interval(interval) {
     file = std::fopen(filename.c_str(), "wb");
     if (!file) {
@@ -16,10 +21,17 @@ DataExport::DataExport(const std::string& filename, double interval) : interval(
                "altitude,mach,dyn_pressure,aoa,z_cm,z_cp,stage\n", file);
 }
 
+/**
+ * @brief destructor for data export
+ */
 DataExport::~DataExport() {
     if (file) std::fclose(file);
 }
 
+/**
+ * @brief
+ * @param row the row of which a new line should be written
+ */
 void DataExport::write_row(const ExportRow& row) {
     if (!file) return;
 

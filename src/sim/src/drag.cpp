@@ -12,14 +12,34 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // helper functions                                                                          //
 ///////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief
+ * @param rho air density (kg/m^3)
+ * @param V airspeed relative to the air (m/s)
+ * @return dynamic pressure
+ */
 static double dynamic_pressure(double rho, double V) {
     return 0.5 * rho * V * V;
 }
 
+/**
+ * @brief
+ * @param dynamic_pressure dynamic pressure (Pa)
+ * @param A_ref reference area, the body's cross section (m^2)
+ * @param C_N normal force coefficient
+ * @return force perpendicular to the body axis (N)
+ */
 static double normal_drag_force(double dynamic_pressure, double A_ref, double C_N) {
     return dynamic_pressure * A_ref * C_N;
 }
 
+/**
+ * @brief
+ * @param dynamic_pressure dynamic pressure (Pa)
+ * @param A_ref reference area, the body's cross section (m^2)
+ * @param C_A axial drag coefficient
+ * @return force along the body axis (N)
+ */
 static double axial_drag_force(double dynamic_pressure, double A_ref, double C_A) {
     return dynamic_pressure * A_ref * C_A;
 }
@@ -27,12 +47,25 @@ static double axial_drag_force(double dynamic_pressure, double A_ref, double C_A
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // subsonic normal force                                                                     //
 ///////////////////////////////////////////////////////////////////////////////////////////////
-// Munk/Barrowman potential flow
+/**
+ * @brief Munk/Barrowman potential flow
+ * @param AoA angle of attack
+ * @param A_ref reference area, the body's cross section (m^2)
+ * @param A_front cross sectional area at the front of the nosecone (m^2)
+ * @param A_back cross sectional area at the base of the nosecone (m^2)
+ * @return nosecone normal force coefficient
+ */
 static double cone_C_N_subsonic(double AoA, double A_ref, double A_front, double A_back) {
     return (2.0 * sin(AoA) / A_ref) * (A_back - A_front);
 }
 
-// Niskanen viscous crossflow
+/**
+ * @brief Niskanen viscous crossflow
+ * @param AoA angle of attack (rad)
+ * @param A_planiform planform area (m^2)
+ * @param A_ref reference area, the body's cross section (m^2)
+ * @return body normal force coefficient from viscous crossflow
+ */
 static double C_N_lift_subsonic(double AoA, double A_planiform, double A_ref) {
     return 1.1 * (A_planiform / A_ref) * sin(AoA) * sin(AoA);
 }
@@ -40,6 +73,14 @@ static double C_N_lift_subsonic(double AoA, double A_planiform, double A_ref) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // center of pressure                                                                        //
 ///////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief
+ * @param cone_height nosecone length (m)
+ * @param len_body length of the cylindrical body behind the nosecone (m)
+ * @param C_N_cone nosecone normal force coefficient 
+ * @param C_N_body body normal force coefficient
+ * @return center of pressure distance back from the nose tip (m)
+ */
 static double X_CP(double cone_height, double len_body, double C_N_cone, double C_N_body) {
     double t1t = (2.0 / 3.0) * cone_height * C_N_cone;
     double t2t = (cone_height + 0.5 * len_body) * C_N_body;
@@ -50,21 +91,47 @@ static double X_CP(double cone_height, double len_body, double C_N_cone, double 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // axial force                                                                               //
 ///////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief
+ * @param Re Reynolds number
+ * @return incompressible skin friction coefficient
+ */
 static double C_f(double Re) {
     if (Re < 1.0e4) Re = 1.0e4;
     double t = 1.5 * log(Re) - 5.6;
     return 1.0 / (t * t);
 }
 
+/**
+ * @brief
+ * @param M Mach number
+ * @param Re Reynolds number
+ * @return skin friction coefficient corrected for subsonic compressibilit
+ */
 static double C_f_c_subsonic(double M, double Re) {
     return C_f(Re) * (1.0 - 0.1 * M * M);
 }
 
+/**
+ * @brief
+ * @param M Mach number
+ * @param Re Reynolds number
+ * @return skin friction coefficient corrected for supersonic compressibility
+ */
 static double C_f_c_supersonic(double M, double Re) {
     return C_f(Re) / pow(1.0 + 0.15 * M * M, 0.58);
 }
 
-// coeff axial drag for skin friction
+/**
+ * @brief coeff axial drag for skin friction
+ * @param M Mach number
+ * @param Re Reynolds number
+ * @param A_wet wetted surface area of the vehicle (m^2)
+ * @param A_ref reference area, the body's cross section (m^2)
+ * @param body_len overall vehicle length from nose tip to aft end (m)
+ * @param body_diameter vehicle diameter (m)
+ * @return skin friction drag coefficient, referenced to A_ref
+ */
 static double C_d_friction(double M, double Re, double A_wet, double A_ref, double body_len, double body_diameter) {
     double C_f_c = 1.0;
     if (M > 1.0) {
@@ -78,7 +145,12 @@ static double C_d_friction(double M, double Re, double A_wet, double A_ref, doub
     return C_f_c * (1.0 + 1.0 / (2.0 * f_b)) * (A_wet / A_ref);
 }
 
-// coeff axial drag for presure at nose
+/**
+ * @brief coeff axial drag for presure at nose
+ * @param cone_half_angle half angle of the nosecone (rad)
+ * @param M Mach number 
+ * @return nosecone wave drag coefficient, referenced to A_ref
+ */
 static double C_d_wave_drag(double cone_half_angle, double M) {
     double s = sin(cone_half_angle);
 
@@ -88,6 +160,12 @@ static double C_d_wave_drag(double cone_half_angle, double M) {
     return 0.8 * s * s;
 }
 
+/**
+ * @brief
+ * @param M Mach number
+ * @param engine_burning true while the engine is producing thrust
+ * @return base drag coefficient, 0 while the engine is burning
+ */
 static double C_d_base_drag(double M, bool engine_burning) {
     if (engine_burning) {
         return 0.0;
@@ -107,6 +185,12 @@ static double C_d_base_drag(double M, bool engine_burning) {
 
 /**
  * acceleration due to drag in the ECI frame
+ * @param r position in ECI (m)
+ * @param v velocity in ECI (m/s)
+ * @param q body orientation, rotates the body frame into ECI
+ * @param mass current total mass of the rocket (kg)
+ * @param props rocket geometry, radius and nosecone length are used here
+ * @return drag acceleration in ECI (m/s^2), also stored in drag_accel
  */
 Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double mass, const RocketProps& props) {
 
