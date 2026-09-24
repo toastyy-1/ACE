@@ -15,7 +15,7 @@ NOT ALLOWED:
  
 If you are unsure, do not submit it.
  
-All contributions go through pull requests reviewed by the maintainer.
+All contributions go through pull requests reviewed by the maintainer(s).
 Sign off every commit (git commit -s) to certify you followed these rules.
  
 Licensed under Apache 2.0. Contributions are licensed under the same terms.
