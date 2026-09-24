@@ -13,7 +13,7 @@
 void Rocket::update_flight_controller(double current_time) {
     if (pending_cutoff) { active_stage().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
 
-    fc_bind::begin(this, &fc_cmd);
+    fc_sim_connector::begin(this);
 
     // hand over the rockets spec and let the controller set itself up
     if (!fc_started) {
@@ -21,7 +21,7 @@ void Rocket::update_flight_controller(double current_time) {
         fc_stages.reserve(props.stages.size());
         for (const Stage& s : props.stages) {
             fc_stage fs{};
-            fs.id                      = s.id;
+            fs.id                      = static_cast<int>(s.id);
             fs.m_dry                   = s.m_dry;
             fs.m_fuel                  = s.m_fuel_full;
             fs.isp                     = s.isp;
@@ -46,7 +46,9 @@ void Rocket::update_flight_controller(double current_time) {
         fc_veh->r_target_ecef = start_state.target_r_ecef;
         fc_veh->time_step     = TIME_STEP;
 
-        fc_state.p = fc_init(fc_veh.get(), current_time);
+        fc.reset(fc_init(fc_veh.get()));
+        fc_cmd = {};
+        fc_cmd.gimbal = {1, 0, 0, 0};
         fc_started = true;
         fc_last_time = current_time;
     }
@@ -60,9 +62,16 @@ void Rocket::update_flight_controller(double current_time) {
     sensors.g      = INS::gravity_eci(r);
     fc_last_time   = current_time;
 
-    fc_update(fc_state.p, &sensors);
+    // one shot commands are cleared every step, persistent ones keep their state
+    fc_cmd.light    = 0;
+    fc_cmd.cutoff   = 0;
+    fc_cmd.separate = 0;
+    fc_cmd.detonate = 0;
+    fc_cmd.cutoff_fraction = 0.0;
 
-    fc_bind::end();
+    fc_update(fc.get(), &sensors, &fc_cmd);
+
+    fc_sim_connector::end();
     apply_fc_commands();
 }
 
@@ -70,9 +79,11 @@ void Rocket::update_flight_controller(double current_time) {
  * apply a step's worth of buffered commands
  */
 void Rocket::apply_fc_commands() {
-    // sub step cutoff wins over a plain cutoff on the same step
-    if (fc_cmd.burn_fraction_set) command_final_burn_fraction(fc_cmd.burn_fraction);
-    else if (fc_cmd.cutoff)       cutoff_engine();
+    // a nonzero cutoff_fraction burns that much of this step before the cutoff
+    if (fc_cmd.cutoff) {
+        if (fc_cmd.cutoff_fraction > 0.0) command_final_burn_fraction(fc_cmd.cutoff_fraction);
+        else                              cutoff_engine();
+    }
 
     if (fc_cmd.separate) advance_stage(); // clears the engine lock for the fresh stage
     if (fc_cmd.light)    light_engine();

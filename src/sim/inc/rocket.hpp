@@ -4,7 +4,7 @@
 #include "sim/inc/properties.hpp"
 #include "sim/inc/ins.hpp"
 #include "sim/inc/data_export.hpp"
-#include "fc/inc/fc_bind.hpp"
+#include "fc/inc/fc_sim_connector.hpp"
 #include <array>
 #include <memory>
 #include <string>
@@ -97,8 +97,8 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // the dropped in flight controller
     INS ins;
-    fc_bind::State fc_state; // state fc_init
-    fc_bind::Commands fc_cmd; // what it asked for on the current step
+    fc_sim_connector::State fc; // state fc_init
+    fc_commands fc_cmd{}; // what it asked for on the current step
 
     std::unique_ptr<fc_vehicle> fc_veh;
     std::vector<fc_stage> fc_stages;

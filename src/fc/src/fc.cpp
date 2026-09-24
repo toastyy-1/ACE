@@ -9,23 +9,27 @@
 // entry points                                                                 //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-void* fc_init(const fc_vehicle* vehicle, double t) {
-    return new FlightController(*vehicle, t);
+struct fc_state : FlightController {
+    using FlightController::FlightController;
+};
+
+fc_state* fc_init(const fc_vehicle* vehicle) {
+    return new fc_state(*vehicle);
 }
 
-void fc_update(void* state, const fc_sensors* sensors) {
-    static_cast<FlightController*>(state)->flight_controller_process(*sensors);
+void fc_update(fc_state* state, const fc_sensors* sensors, fc_commands* cmd) {
+    state->flight_controller_process(*sensors, *cmd);
 }
 
-void fc_free(void* state) {
-    delete static_cast<FlightController*>(state);
+void fc_free(fc_state* state) {
+    delete state;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // startup                                                                                   //
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-FlightController::FlightController(const fc_vehicle& vehicle, double current_time) : veh(vehicle) {
+FlightController::FlightController(const fc_vehicle& vehicle) : veh(vehicle) {
     cs.stage = STANDBY;
 }
 
@@ -318,7 +322,7 @@ void FlightController::calculate_I() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // called once per sim time step
-void FlightController::flight_controller_process(const fc_sensors& sensors) {
+void FlightController::flight_controller_process(const fc_sensors& sensors, fc_commands& cmd) {
 
     ////////////////////////////
     // control inside         //
@@ -370,13 +374,14 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
     if (cs.final_burn_flag) {
         cs.final_burn_flag = false;
         // fractional burn (burn that is sub step to time step)
-        fc_burn_fraction(cs.final_burn_fraction);
+        cmd.cutoff = 1;
+        cmd.cutoff_fraction = cs.final_burn_fraction;
         cs.throttle = std::clamp(cs.final_burn_fraction, 0.0, 1.0);
         cs.burn_ends = true;
     }
     else if (cs.cutoff_engine_flag) {
         cs.cutoff_engine_flag = false;
-        fc_cutoff_engine();
+        cmd.cutoff = 1;
         cs.lit_stage = -1;
         cs.throttle = 0.0;
     }
@@ -384,7 +389,7 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
     // check if the stage was supposed to be separated (clears the engine lock for the fresh stage)
     if (cs.separate_stage_flag) {
         cs.separate_stage_flag = false;
-        fc_separate_stage();
+        cmd.separate = 1;
         if (cs.active_stage + 1 < num_stages()) cs.active_stage++;
         cs.lit_stage = -1;
         cs.throttle = 0.0;
@@ -393,7 +398,7 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
     // check if engine was supposed to be lit
     if (cs.light_engine_flag) {
         cs.light_engine_flag = false;
-        fc_light_engine();
+        cmd.light = 1;
         if (cs.lit_stage != cs.active_stage) {
             cs.lit_stage = cs.active_stage;
             cs.throttle = 1.0;
@@ -402,18 +407,18 @@ void FlightController::flight_controller_process(const fc_sensors& sensors) {
 
     // check if rocket was supposed to be detonated
     if (cs.detonate_flag) {
-        fc_detonate();
+        cmd.detonate = 1;
     }
 
     // send targeting commands to the engine gimbal system based on target attitude in cs
-    fc_set_gimbal(set_new_engine_gimbal_quat());
+    cmd.gimbal = set_new_engine_gimbal_quat();
 
     // send orientation change commands to the rcs thruster system if it is active
     if (cs.rcs_activated_flag) {
-        fc_rcs_enable(1);
-        fc_rcs_set_moment(calculate_rcs_moments_to_achieve_target_orientation());
+        cmd.rcs_on = 1;
+        cmd.rcs_moment = calculate_rcs_moments_to_achieve_target_orientation();
     }
     else {
-        fc_rcs_enable(0);
+        cmd.rcs_on = 0;
     }
 }

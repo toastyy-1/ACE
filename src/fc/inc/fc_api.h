@@ -11,10 +11,8 @@
  *   or if your FC has multiple files (probably)
  *     make FC_SRC="src/fc/src/fc.c src/fc/src/file2.c"
  *
- * the sim calls fc_update once per time step. 
- * 
- * the commands are buffered and applied by the sim after fc_update returns, in a fixed order 
- * (see below), so the order you call them in should not matter.
+ * the sim calls fc_update once per time step. it hands you the sensors and you fill in the
+ * fc_commands struct, which the sim applies after fc_update returns in a fixed order (see below)
  *
  */
 
@@ -58,7 +56,7 @@ typedef struct fc_quat { double w, x, y, z; } fc_quat;
  * but you dont have to
  */
 typedef struct fc_stage {
-    double id;
+    int id;
     double m_dry;                   /* dry mass (kg) */
     double m_fuel;                  /* propellant load at ignition (kg) */
     double isp;                     /* vacuum specific impulse (s) */
@@ -83,7 +81,7 @@ typedef struct fc_vehicle {
     int num_stages;
     const fc_stage* stages;         /* num_stages entries */
 
-    fc_vec3 r_origin_eci;           /* surveyed launch point at t = 0 (m, ECI) */
+    fc_vec3 r_origin_eci;           /* launch point at t = 0 (m, ECI) */
     fc_quat q_origin_eci;           /* launch attitude, body +z is the nose */
     fc_vec3 r_target_ecef;          /* aim point, earth fixed. its norm is the terrain radius there */
 
@@ -108,98 +106,82 @@ typedef struct fc_sensors {
     fc_vec3 g;
 } fc_sensors;
 
+/**
+ * index of the current active stage
+ * use it to index fc_vehicle.stages, or something else entirely
+ */
+int fc_active_stage(void);
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * every call below just records an intent. after fc_update returns the sim applies them
- * in this order, which is what lets you stage and relight in the same step:
+ * what the fc wants the vehicle to do. after fc_update returns the sim
+ * applies them in this order:
  *
- *   1 - fc_burn_fraction, else fc_cutoff_engine
- *   2 - fc_separate_stage
- *   3 - fc_light_engine
- *   4 - fc_detonate
- *   5 - fc_set_gimbal
- *   6 - fc_rcs_enable / fc_rcs_set_moment
+ *   1 - cutoff
+ *   2 - separate
+ *   3 - light
+ *   4 - detonate
+ *   5 - gimbal
+ *   6 - rcs_on / rcs_moment
  *
- * gimbal and rcs settings persist until you change them. the rest are one shot
+ * light, cutoff, separate and detonate are one shot, the sim clears them before every fc_update.
+ * everything else keeps whatever value you last wrote until you change it
  */
+typedef struct fc_commands {
+    int light;              /* light the active stage's solid motor */
+    int separate;           /* separate stage and ready the new stage for instructions */
+    int detonate;           /* blows the vehicle up on command (aura purposes) */
 
-/**
- * light the active stage's solid motor
- */
-void fc_light_engine(void);
+    /**
+     * kill the active stage's motor (permanent). cutoff_fraction is how much of a full step's worth
+     * of thrust to burn before the cutoff, clamped to [0, 1]. 0 cuts off immediately. use it if dt
+     * is big enough that you want sub step accuracy for burn cutoff. this is just a sim convenience
+     * so dont become too reliant on it, a real vehicle cant do this (for obvious reasons)
+     */
+    int cutoff;
+    double cutoff_fraction;
 
-/**
- * kill the active stage's motor (permenant)
- */
-void fc_cutoff_engine(void);
+    /**
+     * nozzle orientation relative to the body frame. the identity quaternion points the nozzle straight
+     * aft. any deflection past the stage's engine_gimbal_range_deg is clamped by the sim
+     */
+    fc_quat gimbal;
 
-/* burn `fraction` of a full step's worth of thrust this step, then cut off permanently.
-   this exists so cutoff does not have to land on a step boundary -- it is a sim
-   convenience, not something a real vehicle does. fraction is clamped to [0, 1]. */
-/**
- * if the fc should burn a partial amount through the full step's worth of thrust
- * for a given time step. use this if the dt is so big that you want sub-step
- * accruracy for burn cutoff (useful for larger dt, but generally nice to use)
- * this is just for sim convenience so dont become too reliant on it as it wouldnt exist
- * for a real flight vehicle (for obvious reasons)
- */
-void fc_burn_fraction(double fraction);
-
-/**
- * separate stage and ready new stage for instructions
- */
-void fc_separate_stage(void);
-
-/* nozzle orientation relative to the body frame. identity points the nozzle straight aft.
-   deflection past the stage's engine_gimbal_range_deg is clamped by the sim. */
-/**
- * sets the nozzle orientation relative to the body frame. zeroed quaternion points the
- * nozzle straight down. any defleciton past the stage's max gimbal range is stopped by the sim
- */
-void fc_set_gimbal(fc_quat q_engine_in_body);
-
-/**
- * set RCS to be enabled or disabled
- */
-void fc_rcs_enable(int on);
-
-/**
- * set amount of torque RCS should apply to the stage (RCS is an experimental feature so it is not in-depth)
- */
-void fc_rcs_set_moment(fc_vec3 moment_body);
-
-/**
- * blows the vehicle up on command (aura purposes)
- */
-void fc_detonate(void);
-
-/**
- * index of the current active stage
- * use it to index fc_vehicle.stages, or set a fc var to keep track of it every update loop
- */
-int fc_active_stage(void);
+    /**
+     * rcs on/off and the torque it should apply to the stage in body frame (RCS is an experimental
+     * feature so it is not very fancy). moments past the stage's rcs_max_moment are clamped by the sim
+     */
+    int rcs_on;
+    fc_vec3 rcs_moment;
+} fc_commands;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ENTRY POINTS
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * should be called once on the first step of this vehicle's life. 
+ * your flight controller's state. the sim never looks inside it, so define
+ * struct fc_state however you like
  */
-void* fc_init(const fc_vehicle* vehicle, double t);
+typedef struct fc_state fc_state;
 
 /**
- * called once per sim time step, reads the sensors and issues commands to the actual rocket
+ * called once on the first step of this vehicle's life. vehicle stays valid until fc_free
  */
-void fc_update(void* state, const fc_sensors* sensors);
+fc_state* fc_init(const fc_vehicle* vehicle);
+
+/**
+ * called once per sim time step, reads the sensors and writes what the vehicle should do into cmd
+ */
+void fc_update(fc_state* state, const fc_sensors* sensors, fc_commands* cmd);
 
 /**
  * called when the vehicle is destroyed to free whatever fc stuff is allocated at the moment
  */
-void fc_free(void* state);
+void fc_free(fc_state* state);
 
 #ifdef __cplusplus
 }
@@ -210,7 +192,7 @@ void fc_free(void* state);
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * C++ fc files already have these operators. But if your FC is in C (likely) they exist so you dont
+ * C++ fc files already have these operators by including types.hpp. But if your FC is in C (likely) they exist so you dont
  * have to write all of the helper components by hand to interface with this api (you're welcome)
  */
 

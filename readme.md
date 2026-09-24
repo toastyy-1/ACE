@@ -147,10 +147,12 @@ Rules you should probably follow:
 ### The three entry points
 
 ```c
-void* fc_init(const fc_vehicle* vehicle, double t);  // once per rocket, return your state blob
-void  fc_update(void* state, const fc_sensors* s);   // once per step
-void  fc_free(void* state);                          // on vehicle destruction
+fc_state* fc_init(const fc_vehicle* vehicle);                             // once per rocket, return your state
+void      fc_update(fc_state* state, const fc_sensors* s, fc_commands* cmd); // once per step
+void      fc_free(fc_state* state);                                        // on vehicle destruction
 ```
+
+`fc_state` is yours: the header only forward declares it, so define `struct fc_state { ... };` in your own source with whatever your controller needs.
 
 
 ### What the Sim's API exposes to the flight controller
@@ -166,20 +168,22 @@ acceleration, rotate `a_spec` into ECI with your attitude estimate and add your 
 
 ### What you can command
 
+`fc_update` writes what it wants into `cmd`:
+
 ```c
-fc_light_engine();  
-fc_cutoff_engine();  
-fc_burn_fraction(f);
-fc_separate_stage(); 
-fc_detonate();
-fc_set_gimbal(q);   
-fc_rcs_enable(1);    
-fc_rcs_set_moment(m);
-int stage = fc_active_stage();
+cmd->light = 1;                  // light the active stage
+cmd->cutoff = 1;                 // cut off the active stage (permanent)
+cmd->cutoff_fraction = f;        // optional: burn f of this step first, then cut off
+cmd->separate = 1;
+cmd->detonate = 1;
+cmd->gimbal = q;                 // nozzle in body frame
+cmd->rcs_on = 1;
+cmd->rcs_moment = m;
 ```
 
-Calls only record you intent to run that command. 
-The sim applies them after `fc_update` returns, in a fixed order (burn/cutoff, separate, light, detonate, gimbal, RCS). Order of your calls does not matter. Gimbal and RCS settings persist across steps, and everything else is one shot.
+You can also ask which stage is active with `int stage = fc_active_stage();`.
+
+The sim applies the commands after `fc_update` returns, in a fixed order (cutoff, separate, light, detonate, gimbal, RCS). `light`, `cutoff`, `separate` and `detonate` are one shot and cleared before every step. Gimbal and RCS keep whatever you last wrote.
 
 ### Frames
 
@@ -193,10 +197,10 @@ The sim applies them after `fc_update` returns, in a fixed order (burn/cutoff, s
 #include "fc/inc/fc_api.h"
 #include <stdlib.h>
 
-typedef struct { const fc_vehicle* veh; fc_vec3 r, v; fc_quat q; int lit; } my_fc;
+struct fc_state { const fc_vehicle* veh; fc_vec3 r, v; fc_quat q; int lit; };
 
-void* fc_init(const fc_vehicle* vehicle, double t) {
-    my_fc* s = calloc(1, sizeof(my_fc));
+fc_state* fc_init(const fc_vehicle* vehicle) {
+    fc_state* s = calloc(1, sizeof(fc_state));
     s->veh = vehicle;
     s->r = vehicle->r_origin_eci;
     s->v = fc_surface_velocity_eci(vehicle->r_origin_eci);
@@ -204,9 +208,7 @@ void* fc_init(const fc_vehicle* vehicle, double t) {
     return s;
 }
 
-void fc_update(void* state, const fc_sensors* sen) {
-    my_fc* s = (my_fc*)state;
-
+void fc_update(fc_state* s, const fc_sensors* sen, fc_commands* cmd) {
     // attitude from the gyro
     fc_quat dq = fc_q_mul(s->q, fc_q(0.0, sen->w.x, sen->w.y, sen->w.z));
     s->q = fc_q_normalize(fc_q(s->q.w + 0.5 * dq.w * sen->dt, s->q.x + 0.5 * dq.x * sen->dt,
@@ -217,10 +219,10 @@ void fc_update(void* state, const fc_sensors* sen) {
     s->v = fc_v3_add(s->v, fc_v3_scale(a, sen->dt));
     s->r = fc_v3_add(s->r, fc_v3_scale(s->v, sen->dt));
 
-    if (!s->lit) { fc_light_engine(); s->lit = 1; }
+    if (!s->lit) { cmd->light = 1; s->lit = 1; }
 }
 
-void fc_free(void* state) { free(state); }
+void fc_free(fc_state* s) { free(s); }
 ```
 
 Build it with `make FC_SRC=src/fc/src/my_fc.c && ./program`.

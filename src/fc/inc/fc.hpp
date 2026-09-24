@@ -79,10 +79,10 @@ struct ControlStates {
 class FlightController {
     public:
     // load a fully set up rocket config/geometry into the FC and set up initial state
-    FlightController(const fc_vehicle& vehicle, double current_time);
+    FlightController(const fc_vehicle& vehicle);
 
     // perform flight controller operations (should be called every time we want to update the FC)
-    void flight_controller_process(const fc_sensors& sensors);
+    void flight_controller_process(const fc_sensors& sensors, fc_commands& cmd);
 
     private:
     static constexpr double HOLD_DURATION = 10.0;
