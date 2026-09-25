@@ -21,6 +21,7 @@ struct ExportRow {
     double z_cm = 0;  // CoM from the active stage's aft edge (m)
     double z_cp = 0;  // CoP from the active stage's aft edge (m)
     int stage = 0;    // active stage index
+    double m_fuel_stage = 0; // fuel remaining in the active stage (kg)
 };
 
 // opens a CSV on construction, writes a row per write_row call, and closes the file on destruction

@@ -76,15 +76,14 @@ def plot_forces_and_aero(d, csv_name):
     ax.set_ylabel("m")
     ax.legend(loc="best")
 
-    # how well the logged components explain the total acceleration (nonzero on the ground, where drag isn't applied)
+    # fuel left in whichever stage is currently active (jumps to the next stage's load at staging)
     ax = axes[3, 1]
-    a = np.column_stack((d["ax"], d["ay"], d["az"]))
-    parts = np.column_stack((d["gx"] + d["dragx"] + d["thrust_ax"],
-                             d["gy"] + d["dragy"] + d["thrust_ay"],
-                             d["gz"] + d["dragz"] + d["thrust_az"]))
-    ax.plot(t, np.linalg.norm(a - parts, axis=1), color="tab:red")
-    ax.set_title("|a - (g + drag + thrust)|")
-    ax.set_ylabel("m/s²")
+    if "m_fuel_stage" in d.dtype.names:
+        ax.plot(t, d["m_fuel_stage"], color="tab:orange")
+    else:
+        ax.text(0.5, 0.5, "re-export CSV for m_fuel_stage", ha="center", va="center", transform=ax.transAxes)
+    ax.set_title("Active stage fuel")
+    ax.set_ylabel("kg")
 
     for ax in axes.flat:
         ax.grid(True, alpha=0.3)

@@ -18,7 +18,7 @@ DataExport::DataExport(const std::string& filename, double interval) : interval(
 
     std::fputs("t,rx,ry,rz,vx,vy,vz,ax,ay,az,qw,qx,qy,qz,wx,wy,wz,m,m_fuel,thrust,"
                "gx,gy,gz,dragx,dragy,dragz,thrust_ax,thrust_ay,thrust_az,a_spec_x,a_spec_y,a_spec_z,"
-               "altitude,mach,dyn_pressure,aoa,z_cm,z_cp,stage\n", file);
+               "altitude,mach,dyn_pressure,aoa,z_cm,z_cp,stage,m_fuel_stage\n", file);
 }
 
 /**
@@ -56,6 +56,7 @@ void DataExport::write_row(const ExportRow& row) {
         row.altitude, row.mach, row.dyn_pressure, row.aoa,
         row.z_cm, row.z_cp,
         static_cast<double>(row.stage),
+        row.m_fuel_stage,
     };
 
     char buf[sizeof(vals) / sizeof(vals[0]) * 32];

@@ -617,6 +617,7 @@ void Rocket::update_dynamics(double current_time) {
         row.z_cm         = z_cm;
         row.z_cp         = z_cp;
         row.stage        = active_idx;
+        row.m_fuel_stage = s.m_fuel;
         data_export->write_row(row);
     }
 }
