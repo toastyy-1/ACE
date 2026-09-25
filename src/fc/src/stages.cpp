@@ -17,7 +17,7 @@ void FlightController::s1_powered() {
     // do initial turn towards target before gravity turn starts
     ///////////////////////////////////////////////////////////////////////////
     constexpr double init_turn_len = 20.0; // seconds
-    constexpr double init_tilt_angle = 50.0 * DEG_TO_RAD;
+    constexpr double init_tilt_angle = 18.0 * DEG_TO_RAD;
 
     if (dt < init_turn_len) {
         Vec3 up = cs.r.unit();
@@ -28,17 +28,18 @@ void FlightController::s1_powered() {
 
         // turned slightly
         Vec3 tilt = up * cos(init_tilt_angle) + downrange_from_origin * sin(init_tilt_angle);
-        cs.target_att = quat_from_vec(tilt);
+        cs.target_att = quat_from_vec(limit_aoa(tilt));
     }
 
     ///////////////////////////////////////////////////////////////////////////
     // after initial turn, start gravity turn (follow v vec)
     ///////////////////////////////////////////////////////////////////////////
     else {
-        // align with plane connecting to target and blend with current velocity vector
+        // align with plane connecting to target and blend with current velocity vector relative to the air
         Vec3 n = cs.is.r_origin.cross(r_target).unit();
-        Vec3 v_in_target_plane = cs.v - n * cs.v.dot(n);
-        cs.target_att = quat_from_vec(v_in_target_plane.unit());
+        Vec3 v_air = cs.v - surface_velocity_eci(cs.r);
+        Vec3 v_in_target_plane = v_air - n * v_air.dot(n);
+        cs.target_att = quat_from_vec(limit_aoa(v_in_target_plane));
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -215,7 +216,7 @@ void FlightController::s2_powered() {
     }
 
     // set attitude to new target
-    cs.target_att = quat_from_vec(v_gain.unit());
+    cs.target_att = quat_from_vec(limit_aoa(v_gain));
 
 }
 

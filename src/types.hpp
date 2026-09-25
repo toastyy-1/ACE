@@ -86,6 +86,18 @@ struct Quat {
     }
 };
 
+/** 
+ * rotate a vector by a quaternion
+ * @param q quaternion to rotate
+ * @param u vector that is rotated
+ * @return
+*/
+inline Vec3 rotate_by_quat(const Quat& q, const Vec3& u) {
+    Vec3 q_vec = {q.x, q.y, q.z};
+    Vec3 t = q_vec.cross(u);
+    return u + t * (2.0 * q.w) + q_vec.cross(t) * 2.0;
+}
+
 inline Quat operator*(const Mat4& M, const Quat& q) {
     return {
         M.m[0][0]*q.w + M.m[0][1]*q.x + M.m[0][2]*q.y + M.m[0][3]*q.z,

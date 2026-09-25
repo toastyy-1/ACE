@@ -119,17 +119,6 @@ Vec3 Rocket::lat_lon_to_ecef(double latitude_deg, double longitude_deg) {
     };
 }
 
-/** 
- * rotate a vector by a quaternion
- * @param q quaternion to rotate
- * @param u vector that is rotated
- * @return
-*/
-static Vec3 rotate_by_quat(const Quat& q, const Vec3& u) {
-    Vec3 q_vec = {q.x, q.y, q.z};
-    Vec3 t = q_vec.cross(u);
-    return u + t * (2.0 * q.w) + q_vec.cross(t) * 2.0;
-}
 /**
  * nose direction rotated into the ECI frame from an attitude
  * @param q nose direction quaternion
@@ -441,12 +430,13 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
  * @param r_i position in ECI
  * @param v_i velocity in ECI
  * @param q_i body orientation
+ * @param w_i angular velocity, body frame
  * @param thrust_body thrust force in the body frame
  * @param props rocket geometry
  * @return acceleration in ECI
  */
-Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props) {
-    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, q_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
+Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const Vec3& thrust_body, const RocketProps& props) {
+    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, q_i, w_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
 }
 
 /**
@@ -482,7 +472,7 @@ void Rocket::update_dynamics(double current_time) {
     }
     thrust_scale *= burn_frac;
 
-    // quantities the FC commands
+    // quantities the FC commands (aero torque is added per stage since it depends on attitude)
     Vec3 thrust_body = engine_thrust_body(thrust_scale);
     Vec3 net_torque = net_body_torque(thrust_scale);
 
@@ -498,8 +488,8 @@ void Rocket::update_dynamics(double current_time) {
     // k1 terms                       //
     ////////////////////////////////////
     Vec3 k1_r = v;
-    Vec3 k1_v = translational_accel(m, r, v, q_rocket, thrust_body, props);
-    Vec3 k1_w = ang_accel(w, I, net_torque);
+    Vec3 k1_v = translational_accel(m, r, v, q_rocket, w, thrust_body, props);
+    Vec3 k1_w = ang_accel(w, I, net_torque + aero_torque);
     Quat k1_q = quat_deriv(q_rocket, w);
 
     ////////////////////////////////////
@@ -510,8 +500,8 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w2 = w + k1_w * (dt / 2);
     Quat q2 = q_rocket + k1_q * (dt / 2);
     Vec3 k2_r = v2;
-    Vec3 k2_v = translational_accel(m_mid, r2, v2, q2, thrust_body, props);
-    Vec3 k2_w = ang_accel(w2, I, net_torque);
+    Vec3 k2_v = translational_accel(m_mid, r2, v2, q2, w2, thrust_body, props);
+    Vec3 k2_w = ang_accel(w2, I, net_torque + aero_torque);
     Quat k2_q = quat_deriv(q2, w2);
 
     ////////////////////////////////////
@@ -522,8 +512,8 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w3 = w + k2_w * (dt / 2);
     Quat q3 = q_rocket + k2_q * (dt / 2);
     Vec3 k3_r = v3;
-    Vec3 k3_v = translational_accel(m_mid, r3, v3, q3, thrust_body, props);
-    Vec3 k3_w = ang_accel(w3, I, net_torque);
+    Vec3 k3_v = translational_accel(m_mid, r3, v3, q3, w3, thrust_body, props);
+    Vec3 k3_w = ang_accel(w3, I, net_torque + aero_torque);
     Quat k3_q = quat_deriv(q3, w3);
 
     ////////////////////////////////////
@@ -534,8 +524,8 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 w4 = w + k3_w * dt;
     Quat q4 = q_rocket + k3_q * dt;
     Vec3 k4_r = v4;
-    Vec3 k4_v = translational_accel(m_end, r4, v4, q4, thrust_body, props);
-    Vec3 k4_w = ang_accel(w4, I, net_torque);
+    Vec3 k4_v = translational_accel(m_end, r4, v4, q4, w4, thrust_body, props);
+    Vec3 k4_w = ang_accel(w4, I, net_torque + aero_torque);
     Quat k4_q = quat_deriv(q4, w4);
 
     ////////////////////////////////////
@@ -577,7 +567,7 @@ void Rocket::update_dynamics(double current_time) {
     // gravity, thrust, and drag at new position
     Vec3 g_end = calc_gravity_accel(r);
     thrust_accel = rotate_by_quat(q_rocket, thrust_body) / m_end;
-    Vec3 drag_end = calc_drag_accel(r, v, q_rocket, m_end, props);
+    Vec3 drag_end = calc_drag_accel(r, v, q_rocket, w, m_end, props);
 
     // update acceleration of the body as consistent with RK4
     if (on_ground) {

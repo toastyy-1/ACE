@@ -170,6 +170,33 @@ Quat FlightController::quat_from_vec(Vec3 u) {
     return q.normalize();
 }
 
+// clamps a pointing direction to the angle of attack the airframe can hold at the current dynamic pressure
+// without destabalizing
+// @todo make this better
+Vec3 FlightController::limit_aoa(Vec3 dir) const {
+    Vec3 u = dir.unit();
+
+    // airspeed relative to the atmosphere rotating with the earth
+    Vec3 v_air = cs.v - surface_velocity_eci(cs.r);
+    double speed = v_air.mag();
+    if (speed < 1.0) return u;
+    Vec3 v_hat = v_air * (1.0 / speed);
+
+    // rough atmosphere model for dynamic pressure
+    double h = cs.r.mag() - FC_EARTH_RADIUS;
+    double rho = 1.225 * exp(-h / 8500.0);
+    double q = 0.5 * rho * speed * speed;
+    double aoa_max = MAX_Q_ALPHA / std::max(q, 1e-9);
+
+    double aoa = acos(std::clamp(u.dot(v_hat), -1.0, 1.0));
+    if (aoa <= aoa_max) return u;
+
+    // point at the target direction, stopping at aoa_max
+    Vec3 perp = u - v_hat * u.dot(v_hat);
+    if (perp.mag() < 1e-9) return v_hat;
+    return v_hat * cos(aoa_max) + perp.unit() * sin(aoa_max);
+}
+
 // sets the engine gimbal based on target orientation
 Quat FlightController::set_new_engine_gimbal_quat() {
     if (cs.stage < STAGE_1 || cs.stage == FREE_FLIGHT) return {1, 0, 0, 0};
@@ -186,7 +213,7 @@ Quat FlightController::set_new_engine_gimbal_quat() {
     Vec3 n = { .x = 2 * q_err.x, .y = 2 * q_err.y, .z = 2 * q_err.z };
 
     // calculate required torque using PD
-    double wn = 0.15;
+    double wn = 5.0;
     double zeta = 0.7;
     Vec3 K_p = cs.I * (wn * wn);
     Vec3 K_d = cs.I * (2.0 * zeta * wn);

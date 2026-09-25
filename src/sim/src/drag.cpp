@@ -182,17 +182,39 @@ static double C_d_base_drag(double M, bool engine_burning) {
     return C_d_b;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// pitch/yaw damping                                                                         //
+///////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief viscous crossflow damping
+ * @param w_rel angular velocity relative to the air in body frame (rad/s)
+ * @param rho air density
+ * @param diameter body diameter (m)
+ * @param len_aft distance from the CoM back to the aft end (m)
+ * @param len_fwd distance from the CoM forward to the nose tip (m)
+ * @return moment opposing the pitch/yaw rate in body frame (N-m)
+ */
+static Vec3 damping_moment(const Vec3& w_rel, double rho, double diameter, double len_aft, double len_fwd) {
+    const double C_D_crossflow = 1.1;
+    double w_perp = std::sqrt(w_rel.x * w_rel.x + w_rel.y * w_rel.y);
+    if (w_perp < 1e-12) return {0, 0, 0};
+
+    double arm4 = (std::pow(len_aft, 4) + std::pow(len_fwd, 4)) / 4.0;
+    double M = 0.5 * rho * C_D_crossflow * diameter * w_perp * w_perp * arm4;
+    return {-M * w_rel.x / w_perp, -M * w_rel.y / w_perp, 0};
+}
 
 /**
  * acceleration due to drag in the ECI frame
  * @param r position in ECI (m)
  * @param v velocity in ECI (m/s)
  * @param q body orientation, rotates the body frame into ECI
+ * @param w angular velocity, body frame (rad/s)
  * @param mass current total mass of the rocket (kg)
  * @param props rocket geometry, radius and nosecone length are used here
- * @return drag acceleration in ECI (m/s^2), also stored in drag_accel
+ * @return drag acceleration in ECI (m/s^2), also stored in drag_accel. the matching moment about the CoM is stored in aero_torque
  */
-Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double mass, const RocketProps& props) {
+Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props) {
 
     // calculate the properties of the air
     double air_density, air_pressure, speed_of_sound, mu;
@@ -223,6 +245,7 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double
         dyn_pressure = 0;
         aoa = 0;
         drag_accel = {0, 0, 0};
+        aero_torque = {0, 0, 0};
         return {0, 0, 0};
     }
 
@@ -259,6 +282,15 @@ Vec3 Rocket::calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double
     Vec3 drag_a = norm_a + axial_a;
 
     drag_accel = drag_a;
+
+    // drag from cp torques body about cm
+    Vec3 drag_force_body = rotate_by_quat(q.conjugate(), drag_a * mass);
+    Vec3 r_cp = {0, 0, z_cp - z_cm};
+    aero_torque = r_cp.cross(drag_force_body);
+
+    // affect pitch/yaw rate relative to the rotating atmosphere
+    Vec3 w_earth_body = rotate_by_quat(q.conjugate(), Vec3{0, 0, EARTH_ROTATION_RATE});
+    aero_torque += damping_moment(w - w_earth_body, air_density, diameter, z_cm, total_len - z_cm);
 
     return drag_a;
 }

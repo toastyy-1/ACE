@@ -86,6 +86,7 @@ class FlightController {
 
     private:
     static constexpr double HOLD_DURATION = 10.0;
+    static constexpr double MAX_Q_ALPHA = 1000.0;
 
     // rocket geometry handed over by the sim once at startup
     fc_vehicle veh;
@@ -102,6 +103,7 @@ class FlightController {
     void estimate_state();
     void pull_new_data(const fc_sensors& sensors);
     Quat quat_from_vec(Vec3 u);
+    Vec3 limit_aoa(Vec3 dir) const;
     Quat set_new_engine_gimbal_quat();
     Vec3 calculate_rcs_moments_to_achieve_target_orientation(); // longest function name ever lets go
     void calculate_I();

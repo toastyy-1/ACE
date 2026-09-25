@@ -137,6 +137,7 @@ class Rocket {
     Vec3 I_body = {0, 0, 0};     // moments of inertia about the combined CoM, body frame
     double z_cm = 0;             // combined CoM along body +z, from the active stage's aft edge (m)
     double z_cp = 0;             // center of pressure along body +z, from the active stage's aft edge (m)
+    Vec3 aero_torque = {0, 0, 0}; // aerodynamic moment about the combined CoM, body frame (N-m)
 
     // rcs system
     bool rcs_active = false;
@@ -181,8 +182,8 @@ class Rocket {
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 
     // applies translational acceleration components
-    Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& thrust_body, const RocketProps& props); // gravity + drag + thrust, ECI
-        Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, double mass, const RocketProps& props);
+    Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const Vec3& thrust_body, const RocketProps& props); // gravity + drag + thrust, ECI
+        Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props); // also sets aero_torque
         Vec3 calc_gravity_accel(const Vec3& r);
 
 
