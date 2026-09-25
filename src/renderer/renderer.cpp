@@ -247,9 +247,12 @@ void Renderer::DrawFrame(const RCamera& cam) {
         if (showTrails_)         DrawTrails();
         DrawRocket();
     backend_.End3D();
-    if (showTelemetry_) DrawTelemetry();
-    if (showLabels_)    DrawRocketLabels();
-    DrawOverlayLegend();
+    HudFrame hud = BuildHud();
+    if (!backend_.DrawHud(hud)) {
+        if (showTelemetry_) DrawTelemetry(hud);
+        if (showLabels_)    DrawRocketLabels();
+        DrawOverlayLegend(hud);
+    }
     backend_.EndFrame();
 }
 
@@ -531,26 +534,66 @@ void Renderer::DrawSurfaceMarkers() const {
     backend_.DrawLines(stalks.data(), stalks.size(), 2.0f);
 }
 
-void Renderer::DrawTelemetry() const {
-    // --- gather raw state (all ECI, SI units) from sim ---
-    RocketState st = primaryState();
-    Vec3 r = st.r;
-    Vec3 v = st.v;
-    Vec3 a = st.a;
-    Vec3 w = st.w;
-    Quat qr = st.q_rocket;
-    Quat qe = st.q_engine;
-    double t    = st.t;
-    double mass = st.mass;
-    double fuel = st.fuel;
+HudFrame Renderer::BuildHud() const {
+    HudFrame h;
+    std::vector<std::string> ids = rocketIds();
+    h.rockets.reserve(states_.size());
+    for (size_t i = 0; i < states_.size(); i++) {
+        const RocketState& st = states_[i];
+        double rmag = st.r.mag();
+        HudRocket hr;
+        hr.id        = ids[i];
+        hr.view_pos  = ToView(st.r);
+        hr.detonated = i < detStart_.size() && detStart_[i] >= 0.0;
+        hr.thrust    = i < thrustLvl_.size() ? thrustLvl_[i] : 0.0f;
+        hr.length    = st.length;
+        hr.alt_km    = (rmag - EARTH_RADIUS) * M_TO_KM;
+        hr.vspeed    = rmag > 1.0 ? st.v.dot(st.r / rmag) : 0.0;
+        h.rockets.push_back(hr);
+    }
+    h.primary = states_.empty() ? -1 : primary_;
 
-    // --- attitude ---
-    double rmag  = r.mag();
-    Vec3   up    = rmag > 1.0 ? r / rmag : Vec3{0, 0, 1};
-    Vec3   nose  = qrot(qr, {0, 0, 1});
-    double pitch = std::asin(clampd(nose.dot(up), -1.0, 1.0)) * RAD_TO_DEG;
-    double gimbal = 2.0 * std::acos(clampd(qe.w, -1.0, 1.0)) * RAD_TO_DEG;
-    Vec3   wdeg  = w * RAD_TO_DEG;
+    RocketState st = primaryState();
+    double rmag = st.r.mag();
+    Vec3   up   = rmag > 1.0 ? st.r / rmag : Vec3{0, 0, 1};
+    h.met    = st.t;
+    h.mass   = st.mass;
+    h.fuel   = st.fuel;
+    h.pos_km = st.r * M_TO_KM;
+    h.alt_km = (rmag - EARTH_RADIUS) * M_TO_KM;
+    h.lat_deg = std::asin(clampd(up.z, -1.0, 1.0)) * RAD_TO_DEG;
+    h.lon_deg = std::atan2(up.y, up.x) * RAD_TO_DEG;
+    h.speed  = st.v.mag();
+    h.vspeed = st.v.dot(up);
+    h.accel  = st.a.mag();
+
+    Vec3 tgt = st.init.target_r_ecef;
+    if (tgt.mag() > 1.0)
+        h.target_range_km = std::atan2(up.cross(tgt).mag(), up.dot(tgt)) * EARTH_RADIUS * M_TO_KM;
+
+    Vec3 nose = qrot(st.q_rocket, {0, 0, 1});
+    h.pitch_deg  = std::asin(clampd(nose.dot(up), -1.0, 1.0)) * RAD_TO_DEG;
+    h.gimbal_deg = 2.0 * std::acos(clampd(st.q_engine.w, -1.0, 1.0)) * RAD_TO_DEG;
+    Vec3 nozzle  = qrot(st.q_engine, {0, 0, 1});   // thrust axis in the body frame
+    h.gimbal_x_deg = std::asin(clampd(nozzle.x, -1.0, 1.0)) * RAD_TO_DEG;
+    h.gimbal_y_deg = std::asin(clampd(nozzle.y, -1.0, 1.0)) * RAD_TO_DEG;
+    h.rates_dps  = st.w * RAD_TO_DEG;
+
+    h.toggles = {
+        { 1, "Trajectory",   showPredicted_ },
+        { 2, "Path",         showTrails_ },
+        { 3, "Labels",       showLabels_ },
+        { 4, "Pins",         showSurfaceMarkers_ },
+        { 5, "Telemetry",    showTelemetry_ },
+        { 6, "Debug",        showDebug_ },
+    };
+    h.show_telemetry = showTelemetry_;
+    h.show_labels    = showLabels_;
+    return h;
+}
+
+void Renderer::DrawTelemetry(const HudFrame& hud) const {
+    const Vec3& r = hud.pos_km;
 
     // --- layout ---
     // Panel size is derived from how many headers/rows we draw below; keep these
@@ -575,35 +618,34 @@ void Renderer::DrawTelemetry() const {
         y += lh;
     };
 
-    std::vector<std::string> ids = rocketIds();
-    const char* idStr = (primary_ >= 0 && primary_ < (int)ids.size()) ? ids[primary_].c_str() : "--";
+    const char* idStr = hud.primary >= 0 ? hud.rockets[hud.primary].id.c_str() : "--";
 
     header("MISSION");
-    row("Target ID",  fmt("%s  (%d/%d)", idStr, primary_ + 1, (int)states_.size()), kYellow);
-    row("MET",        fmt("T+ %7.1f s", t),       kWhite);
+    row("Target ID",  fmt("%s  (%d/%d)", idStr, primary_ + 1, (int)hud.rockets.size()), kYellow);
+    row("MET",        fmt("T+ %7.1f s", hud.met),  kWhite);
 
     header("VEHICLE");
-    row("Mass",       fmt("%8.1f kg", mass),      kWhite);
-    row("Propellant", fmt("%8.1f kg", fuel),      fuel < 50.0 ? kRed : kGreen);
+    row("Mass",       fmt("%8.1f kg", hud.mass),   kWhite);
+    row("Propellant", fmt("%8.1f kg", hud.fuel),   hud.fuel < 50.0 ? kRed : kGreen);
 
     header("ECEF POSITION (km)");
-    row("X",  fmt("%+12.3f", r.x * M_TO_KM), kWhite);
-    row("Y",  fmt("%+12.3f", r.y * M_TO_KM), kWhite);
-    row("Z",  fmt("%+12.3f", r.z * M_TO_KM), kWhite);
-    row("ALT", fmt("%+12.3f", (r.mag() - EARTH_RADIUS) * M_TO_KM), kWhite);
+    row("X",  fmt("%+12.3f", r.x), kWhite);
+    row("Y",  fmt("%+12.3f", r.y), kWhite);
+    row("Z",  fmt("%+12.3f", r.z), kWhite);
+    row("ALT", fmt("%+12.3f", hud.alt_km), kWhite);
 
     header("VELOCITY (m/s)");
-    row("Speed", fmt("%12.3f", v.mag()), kWhite);
+    row("Speed", fmt("%12.3f", hud.speed), kWhite);
 
     header("ACCELERATION (m/s^2)");
-    row("Accel", fmt("%12.6f", a.mag()), kWhite);
+    row("Accel", fmt("%12.6f", hud.accel), kWhite);
 
     header("ATTITUDE");
-    row("Pitch",      fmt("%+8.2f deg", pitch),    kWhite);
-    row("Gimbal",     fmt("%8.2f deg", gimbal),    gimbal > 5.0 ? kOrange : kWhite);
-    row("Roll rate",  fmt("%+8.2f d/s", wdeg.x),   kWhite);
-    row("Pitch rate", fmt("%+8.2f d/s", wdeg.y),   kWhite);
-    row("Yaw rate",   fmt("%+8.2f d/s", wdeg.z),   kWhite);
+    row("Pitch",      fmt("%+8.2f deg", hud.pitch_deg),    kWhite);
+    row("Gimbal",     fmt("%8.2f deg", hud.gimbal_deg),    hud.gimbal_deg > 5.0 ? kOrange : kWhite);
+    row("Roll rate",  fmt("%+8.2f d/s", hud.rates_dps.x),  kWhite);
+    row("Pitch rate", fmt("%+8.2f d/s", hud.rates_dps.y),  kWhite);
+    row("Yaw rate",   fmt("%+8.2f d/s", hud.rates_dps.z),  kWhite);
 
     backend_.DrawFPS(panelW + 10, 12);
 }
@@ -660,21 +702,13 @@ void Renderer::DrawRocketLabels() const {
     }
 }
 
-void Renderer::DrawOverlayLegend() const {
+void Renderer::DrawOverlayLegend(const HudFrame& hud) const {
     // Bottom-left legend of the number-key toggles. Doubles as documentation: an
     // entry is lit (lime) when its overlay is on, dim (grey) when off.
-    const struct { int key; const char* name; bool on; } items[] = {
-        { 1, "Trajectory",   showPredicted_ },
-        { 2, "Path",         showTrails_ },
-        { 3, "Labels",       showLabels_ },
-        { 4, "Pins",         showSurfaceMarkers_ },
-        { 5, "Telemetry",    showTelemetry_ },
-        { 6, "Debug",        showDebug_ },
-    };
-    const int n  = (int)(sizeof(items) / sizeof(items[0]));
+    const int n  = (int)hud.toggles.size();
     const int fs = 14, lh = 16;
     int y = backend_.ScreenHeight() - lh * n - 8;
-    for (const auto& it : items) {
+    for (const auto& it : hud.toggles) {
         backend_.DrawText(fmt("%d  %s", it.key, it.name), 10, y, fs, it.on ? kLime : kGray);
         y += lh;
     }

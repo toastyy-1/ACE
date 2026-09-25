@@ -1,4 +1,5 @@
 #include "raylib_backend.hpp"
+#include "theme.hpp"
 #include <raymath.h>
 #include <rlgl.h>
 #include <vector>
@@ -17,18 +18,6 @@ RMat4 fromRl(const Matrix& r) {
                    r.m8,  r.m9,  r.m10, r.m11, r.m12, r.m13, r.m14, r.m15 }};
 }
 
-// Greek-capable TTF (bundled). Loaded once; ASCII + the Greek block are baked so
-// rocket IDs like "α3" render. Relative to the repo root (app runs from there).
-const char* kFontPath = "src/renderer/assets/DejaVuSans.ttf";
-
-// Codepoints to bake into the font atlas: ASCII printable + the Greek block.
-std::vector<int> fontCodepoints() {
-    std::vector<int> cp;
-    for (int c = 32;     c <= 126;    ++c) cp.push_back(c);  // ASCII printable
-    for (int c = 0x0370; c <= 0x03FF; ++c) cp.push_back(c);  // Greek and Coptic
-    return cp;
-}
-
 } // namespace
 
 void RaylibBackend::Init(int width, int height, const char* title) {
@@ -42,12 +31,7 @@ void RaylibBackend::Init(int width, int height, const char* title) {
 
     wire_.Init();
     earth_.Init();
-
-    // Bake the Greek-capable font at a comfortable size for scaling down.
-    std::vector<int> cp = fontCodepoints();
-    font_ = LoadFontEx(kFontPath, 48, cp.data(), (int)cp.size());
-    haveFont_ = font_.texture.id != 0 && font_.glyphCount > 0;
-    if (haveFont_) SetTextureFilter(font_.texture, TEXTURE_FILTER_BILINEAR);
+    hud_.Init();
 }
 
 void RaylibBackend::Shutdown() {
@@ -55,7 +39,7 @@ void RaylibBackend::Shutdown() {
     for (wire::GpuMesh& m : meshes_) wire::Destroy(m);
     for (::Texture2D& t : textures_) UnloadTexture(t);
     wire_.Shutdown();
-    if (haveFont_) UnloadFont(font_);
+    hud_.Shutdown();
     CloseWindow();
 }
 
@@ -108,6 +92,7 @@ void RaylibBackend::DestroyMesh(MeshHandle h) {
 
 void RaylibBackend::BeginFrame(RColor clear) {
     clear_ = clear;
+    labels_.clear();
     BeginDrawing();
     ClearBackground(toRl(clear));
 }
@@ -162,7 +147,7 @@ void RaylibBackend::DrawModel(MeshHandle h, const RMat4& model, const Material& 
     if (!additive && mat.depth_write) wire_.Fill(m, model);
 
     wire::Shading s;
-    s.tint = mat.color;
+    s.tint = theme::Remap(mat.color);
     if (mat.lit) { s.heatDir = heatDir_; s.heat = heat_; }
     rlSetLineWidth(additive ? 1.0f : 1.5f);
     if (additive) rlSetBlendMode(RL_BLEND_ADDITIVE);
@@ -173,8 +158,16 @@ void RaylibBackend::DrawModel(MeshHandle h, const RMat4& model, const Material& 
 }
 
 void RaylibBackend::DrawLines(const LineVertex* v, size_t count, float width) {
-    rlSetLineWidth(width);
-    wire_.Lines(v, count);
+    // Into the display palette. Runs of one colour (a whole path) look it up once.
+    remapped_.resize(count);
+    RColor in = { 0, 0, 0, 0 }, out = in;
+    for (size_t i = 0; i < count; ++i) {
+        RColor c = v[i].color;
+        if (c.r != in.r || c.g != in.g || c.b != in.b || c.a != in.a) { in = c; out = theme::Remap(c); }
+        remapped_[i] = { v[i].pos, out };
+    }
+    rlSetLineWidth(width > 1.5f ? 1.5f : width);   // thin, crisp strokes
+    wire_.Lines(remapped_.data(), count);
 }
 
 void RaylibBackend::DrawRocket(const RocketFrame& f) {
@@ -189,6 +182,21 @@ void RaylibBackend::DrawEarth(const EarthFrame& f) {
     rlSetLineWidth(1.0f);
     int h = GetScreenHeight();
     earth_.Draw(wire_, f, cam_, h > 0 ? (float)GetScreenWidth() / (float)h : 1.0f);
+    ground_.Draw(*this, f, cam_, labels_);
+}
+
+bool RaylibBackend::DrawHud(const HudFrame& hud) {
+    HudView v;
+    v.width       = GetScreenWidth();
+    v.height      = GetScreenHeight();
+    v.now         = GetTime();
+    v.fps         = GetFPS();
+    v.haveHeading = ground_.HaveHeading();
+    v.headingDeg  = ground_.HeadingDeg();
+    v.labels      = &labels_;
+    v.project     = [this](const RVec3& p) { return WorldToScreen(p); };
+    hud_.Draw(hud, v);
+    return true;
 }
 
 void RaylibBackend::DrawRect(int x, int y, int w, int h, RColor c) {
@@ -200,13 +208,7 @@ void RaylibBackend::DrawRectLines(int x, int y, int w, int h, RColor c) {
 }
 
 void RaylibBackend::DrawText(const char* text, int x, int y, int font_size, RColor c) {
-    if (haveFont_) {
-        // spacing scales with size so glyphs don't crowd at large sizes.
-        DrawTextEx(font_, text, { (float)x, (float)y }, (float)font_size,
-                   font_size / 10.0f, toRl(c));
-    } else {
-        ::DrawText(text, x, y, font_size, toRl(c));   // ASCII fallback
-    }
+    hud_.Text(text, x, y, font_size, theme::Remap(c));
 }
 
 void RaylibBackend::DrawFPS(int x, int y) { ::DrawFPS(x, y); }

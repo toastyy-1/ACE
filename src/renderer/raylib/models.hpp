@@ -3,8 +3,9 @@
 #include "../render_backend.hpp"
 #include <vector>
 
-// raylib's rocket: a wireframe hull + gimballed bell, an exhaust plume of nested
-// wire cones with Mach diamonds, and the detonation as expanding wire shells.
+// raylib's rocket: a wireframe hull + gimballed bell with its thrust line, an
+// exhaust plume of nested wire cones with Mach diamonds, and the detonation as
+// expanding wire shells.
 // Drawn through the backend interface; the backend turns every mesh into its
 // outline (see wire.hpp). Separate from bgfx's model so each can evolve alone.
 
@@ -19,6 +20,7 @@ public:
     void Draw(RenderBackend& b, const RocketFrame& f) const;
 
 private:
+    void drawThrustAxis(RenderBackend& b, const RocketFrame& f) const;
     void drawPlume(RenderBackend& b, const RocketFrame& f) const;
     void drawDetonation(RenderBackend& b, const RocketFrame& f) const;
 

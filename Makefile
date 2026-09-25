@@ -28,7 +28,8 @@ build/fc/%.o: src/fc/src/%.c src/fc/inc/fc_api.h
 # --- raylib backend (`make`): wireframe, no textures, no bgfx needed ---
 RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models.cpp \
                src/renderer/raylib/wire.cpp src/renderer/raylib/earth.cpp \
-               src/renderer/raylib/earth_surface.cpp
+               src/renderer/raylib/earth_surface.cpp src/renderer/raylib/ground.cpp \
+               src/renderer/raylib/hud.cpp
 RAYLIB_ARCH := -march=native
 TARGET      := program
 

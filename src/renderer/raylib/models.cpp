@@ -1,4 +1,5 @@
 #include "models.hpp"
+#include "theme.hpp"
 #include "../geometry.hpp"
 #include "../../constants.hpp"
 #include <cmath>
@@ -21,6 +22,16 @@ RVec3 along(const RVec3& p, const RVec3& dir, double metres) {
     float k = (float)(metres * M_TO_KM);
     return { p.x + dir.x * k, p.y + dir.y * k, p.z + dir.z * k };
 }
+
+// Rotation about local +Z (a cone's axis), for spinning the plume layers.
+RMat4 spinZ(float a) {
+    RMat4 m = rmath::identity();
+    m.m[0] = cosf(a); m.m[1] = sinf(a);
+    m.m[4] = -sinf(a); m.m[5] = cosf(a);
+    return m;
+}
+
+RVec3 unit(const RVec3& v) { return rmath::normalize(v); }
 
 // Additive, see-through, no depth write: plume and explosion layers.
 Material glow(RColor c, float alpha) {
@@ -52,10 +63,10 @@ RocketModel::HullBell RocketModel::buildHullBell(RenderBackend& b, const RocketD
     const float L      = (float)d.length;
     const float radius = (float)d.radius;
 
-    const RColor kBody = { 205, 215, 230, 255 };  // hull
-    const RColor kNose = { 235,  90,  80, 255 };  // red cap
-    const RColor kTrim = { 110, 180, 235, 255 };  // collar
-    const RColor kBell = { 165, 170, 185, 255 };  // nozzle
+    const RColor kBody = theme::kPrimary;        // hull
+    const RColor kNose = theme::kPrimary;        // nose
+    const RColor kTrim = theme::kSelect;         // collar
+    const RColor kBell = { 190, 190, 190, 255 }; // nozzle
 
     // Body frame: +Z = nose, tip at the origin. The nose is a fixed size so the
     // tip looks the same across staging.
@@ -120,21 +131,52 @@ void RocketModel::Draw(RenderBackend& b, const RocketFrame& f) const {
     b.DrawModel(hull_, hullM, solid);
     b.DrawModel(bell_, f.bell, solid);
 
+    drawThrustAxis(b, f);
     if (f.firing) drawPlume(b, f);
+}
+
+void RocketModel::drawThrustAxis(RenderBackend& b, const RocketFrame& f) const {
+    // The thrust line out of the gimbal pivot, beside a dashed reference along
+    // the body axis: the angle between them is the nozzle deflection, readable
+    // even at a degree or two where the bell itself barely moves.
+    const RVec3  pivot = { f.bell.m[12], f.bell.m[13], f.bell.m[14] };
+    const RVec3  aft   = unit({ -f.hull.m[8], -f.hull.m[9], -f.hull.m[10] });
+    const double len   = dims_.length * 0.6 + 1.5;   // metres, past the bell exit
+
+    std::vector<LineVertex> v;
+    const int dashes = 10;
+    const RColor ref = theme::withAlpha(theme::kInactive, 200);
+    for (int i = 0; i < dashes; ++i) {
+        v.push_back({ along(pivot, aft, len * i / dashes), ref });
+        v.push_back({ along(pivot, aft, len * (i + 0.5) / dashes), ref });
+    }
+    const RColor thr = f.firing ? theme::kActive : theme::withAlpha(theme::kActive, 140);
+    RVec3 tip = along(pivot, f.exhaust_dir, len);
+    v.push_back({ pivot, thr });
+    v.push_back({ tip, thr });
+    // A short crossbar at the end marks it as the thrust line.
+    RVec3 side = unit(rmath::cross(f.exhaust_dir, aft));
+    if (rmath::length(side) < 0.5f) side = unit(rmath::cross(f.exhaust_dir, { 0, 1, 0 }));
+    v.push_back({ along(tip, side, -dims_.radius * 0.6), thr });
+    v.push_back({ along(tip, side,  dims_.radius * 0.6), thr });
+    b.DrawLines(v.data(), v.size(), 1.0f);
 }
 
 void RocketModel::drawPlume(RenderBackend& b, const RocketFrame& f) const {
     // Nested wire cones streaming out of the nozzle along the exhaust direction.
     const double radius = dims_.radius;
     const double Lm     = dims_.length * 0.8 * f.thrust * f.flick;   // plume length, metres
-    auto cone = [&](double r0_m, double len_m, RColor c, float alpha) {
+    // Each layer turns slowly about the axis (at its own rate and direction), so
+    // the wire flame looks alive rather than static.
+    const float t = (float)b.Time();
+    auto cone = [&](double r0_m, double len_m, RColor c, float alpha, float spin) {
         RVec3 apex = along(f.nozzle, f.exhaust_dir, len_m);
-        b.DrawModel(cone_, rmath::orientCone(f.nozzle, apex, (float)(r0_m * M_TO_KM)),
-                    glow(c, alpha * f.thrust));
+        RMat4 m = rmath::mul(rmath::orientCone(f.nozzle, apex, (float)(r0_m * M_TO_KM)), spinZ(t * spin));
+        b.DrawModel(cone_, m, glow(c, alpha * f.thrust));
     };
-    cone(radius * 1.5,  Lm * 1.25, { 255, 110,  40, 255 }, 0.45f);   // outer haze
-    cone(radius * 1.0,  Lm,        { 255, 160,  60, 255 }, 0.75f);   // flame body
-    cone(radius * 0.55, Lm * 0.6,  { 255, 235, 180, 255 }, 0.90f);   // white-hot core
+    cone(radius * 1.5,  Lm * 1.25, { 255, 110,  40, 255 }, 0.45f,  0.7f);   // outer haze
+    cone(radius * 1.0,  Lm,        { 255, 160,  60, 255 }, 0.75f, -1.1f);   // flame body
+    cone(radius * 0.55, Lm * 0.6,  { 255, 235, 180, 255 }, 0.90f,  1.9f);   // white-hot core
 
     // Mach diamonds: shock nodes that only form in atmosphere (over/under-
     // expanded nozzle), so they fade with altitude and down the plume.

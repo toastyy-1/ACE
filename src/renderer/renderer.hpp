@@ -35,12 +35,15 @@ private:
     void DrawRocket() const;
     void DrawPredictedTrajectory() const;
     void DrawTrails() const;
-    void DrawTelemetry() const;
+    // Gather everything the HUD shows (telemetry, rocket labels, toggles).
+    HudFrame BuildHud() const;
+    // The default HUD, for backends that don't draw their own (DrawHud).
+    void DrawTelemetry(const HudFrame& hud) const;
     // 2D overlay: the primary rocket's ID in a top-centre HUD, and floating ID
     // labels above every other rocket. Drawn after End3D.
     void DrawRocketLabels() const;
     // 2D overlay: number-key legend showing which overlays are on/off.
-    void DrawOverlayLegend() const;
+    void DrawOverlayLegend(const HudFrame& hud) const;
 
     // Append the current position of each rocket to its flown-path trail.
     void UpdateTrails();

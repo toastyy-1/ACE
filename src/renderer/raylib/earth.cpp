@@ -1,4 +1,5 @@
 #include "earth.hpp"
+#include "theme.hpp"
 #include "../../constants.hpp"
 
 #include <cmath>
@@ -17,8 +18,6 @@ constexpr int    kMaxLevel      = 18;
 // Cached chunks beyond this are dropped once they've gone unused for kKeepFrames.
 constexpr size_t   kMaxCached   = 4096;
 constexpr uint64_t kKeepFrames  = 120;
-
-const RColor kGridColor = { 50, 130, 175, 255 };
 
 // Renderer view space is the body (ECEF) frame rotated +Z(north) -> +Y(up); see
 // rmath::viewBasis / Renderer::ToView. These are that rotation and its inverse.
@@ -169,7 +168,7 @@ void WireEarth::Draw(wire::Pipeline& p, const EarthFrame& f, const RCamera& cam,
     // All the fills, then all the lines: the fill state is switched once.
     for (size_t i = 0; i < chunks_.size(); ++i) p.Fill(chunkMesh(chunks_[i]), models_[i]);
     wire::Shading s;
-    s.tint = kGridColor;
+    s.tint = theme::kGrid;
     for (size_t i = 0; i < chunks_.size(); ++i) p.Edges(chunkMesh(chunks_[i]), models_[i], s);
 
     evict();

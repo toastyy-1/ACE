@@ -72,6 +72,11 @@ public:
     virtual void DrawRectLines(int x, int y, int w, int h, RColor c) = 0;
     virtual void DrawText(const char* text, int x, int y, int font_size, RColor c) = 0;
     virtual void DrawFPS(int x, int y) = 0;
+
+    // Optional: draw the whole HUD (telemetry, rocket labels, overlay legend)
+    // from `hud`, after End3D. Return false to have the renderer draw its
+    // default panels through the 2D primitives above instead.
+    virtual bool DrawHud(const HudFrame& /*hud*/) { return false; }
 };
 
 }

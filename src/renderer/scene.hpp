@@ -3,6 +3,8 @@
 #include "render_types.hpp"
 #include "rmath.hpp"
 #include "../types.hpp"
+#include <string>
+#include <vector>
 
 // Backend-neutral *domain* description of the scene's high-level objects. The
 // renderer computes these each frame from the sim (it owns the precision-
@@ -41,6 +43,42 @@ struct RocketFrame {
     bool  detonated = false;   // this rocket has detonated
     float det_time  = 0.0f;    // seconds elapsed since detonation began
     RVec3 center{};            // rocket position, view space (km) -- explosion anchor
+};
+
+// One rocket, as the HUD sees it.
+struct HudRocket {
+    std::string id;          // Greek ID, e.g. "α3"
+    RVec3  view_pos;         // position, view space (km), for screen labels
+    bool   detonated;
+    float  thrust;           // [0,1] plume level (the renderer's firing estimate)
+    double length;           // stack length (m); drops at staging
+    double alt_km;           // above the sea-level sphere
+    double vspeed;           // m/s along local up
+};
+
+// Everything the HUD shows, gathered once per frame after the 3D pass. A
+// backend that draws its own HUD (RenderBackend::DrawHud) gets this in place
+// of the renderer's default panels.
+struct HudFrame {
+    std::vector<HudRocket> rockets;   // every rocket, indexed like the sim's list
+    int primary = -1;                 // selected rocket, -1 when none are live
+
+    // Selected rocket, SI units unless noted.
+    double met = 0, mass = 0, fuel = 0;
+    Vec3   pos_km{};                  // ECEF
+    double alt_km = 0, lat_deg = 0, lon_deg = 0;
+    double speed = 0, vspeed = 0, accel = 0;
+    double target_range_km = 0;       // great circle, ground point -> aim point
+    double pitch_deg = 0;             // nose above the local horizon
+    double gimbal_deg = 0;            // total nozzle deflection
+    double gimbal_x_deg = 0, gimbal_y_deg = 0;   // deflection toward body +X / +Y
+    Vec3   rates_dps{};               // body roll / pitch / yaw rates
+
+    // Overlay toggles (number keys), in key order.
+    struct Toggle { int key; const char* name; bool on; };
+    std::vector<Toggle> toggles;
+    bool show_telemetry = true;
+    bool show_labels    = true;
 };
 
 // Everything needed to draw the Earth for one frame. The backend owns the mesh,

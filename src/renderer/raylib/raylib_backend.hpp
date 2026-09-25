@@ -3,6 +3,8 @@
 #include <vector>
 #include "../render_backend.hpp"
 #include "earth.hpp"
+#include "ground.hpp"
+#include "hud.hpp"
 #include "models.hpp"
 #include "wire.hpp"
 
@@ -12,6 +14,7 @@ namespace renderer {
 // one tiny wireframe program. Every solid is drawn as its hidden-line outline
 // (wire.hpp), the Earth as an LOD grid over a smooth sphere (earth.hpp), and
 // the overlays the renderer submits as lines are streamed straight to the GPU.
+// Styled after aircraft displays (theme.hpp, hud.hpp).
 class RaylibBackend : public RenderBackend {
 public:
     void Init(int width, int height, const char* title) override;
@@ -45,6 +48,7 @@ public:
     void DrawRectLines(int x, int y, int w, int h, RColor c) override;
     void DrawText(const char* text, int x, int y, int font_size, RColor c) override;
     void DrawFPS(int x, int y) override;
+    bool DrawHud(const HudFrame& hud) override;
 
 private:
     wire::Pipeline             wire_;
@@ -58,10 +62,8 @@ private:
     RVec3 heatDir_ { 0, 0, 1 };
     float heat_ = 0.0f;
 
-    // Greek-capable font for overlay text (Font ID labels + telemetry). Falls
-    // back to raylib's built-in ASCII font if the TTF fails to load.
-    ::Font font_{};
-    bool   haveFont_ = false;
+    std::vector<LineVertex> remapped_;   // DrawLines input in the display palette
+    std::vector<WorldLabel> labels_;     // 3D-anchored text for the HUD, per frame
 
     // Last camera handed to Begin3D, kept for the Earth's LOD and WorldToScreen.
     RCamera  cam_{};
@@ -69,7 +71,9 @@ private:
 
     // Backend-owned scene objects.
     WireEarth   earth_;
+    GroundMarks ground_;
     RocketModel rocket_;
+    DisplayHud  hud_;
 };
 
 }
