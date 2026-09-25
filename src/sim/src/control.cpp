@@ -39,13 +39,16 @@ void Rocket::update_flight_controller(double current_time) {
         }
 
         fc_veh = std::make_unique<fc_vehicle>();
-        fc_veh->radius        = props.radius;
-        fc_veh->num_stages    = static_cast<int>(fc_stages.size());
-        fc_veh->stages        = fc_stages.data();
-        fc_veh->r_origin_eci  = start_state.origin_r_eci;
-        fc_veh->q_origin_eci  = start_state.origin_q_eci;
-        fc_veh->r_target_ecef = start_state.target_r_ecef;
-        fc_veh->time_step     = TIME_STEP;
+        fc_veh->radius                = props.radius;
+        fc_veh->nosecone_length       = props.nosecone_length;
+        fc_veh->nosecone_mass         = props.nosecone_mass;
+        fc_veh->nosecone_com_distance = props.nosecone_com_distance;
+        fc_veh->num_stages            = static_cast<int>(fc_stages.size());
+        fc_veh->stages                = fc_stages.data();
+        fc_veh->r_origin_eci          = start_state.origin_r_eci;
+        fc_veh->q_origin_eci          = start_state.origin_q_eci;
+        fc_veh->r_target_ecef         = start_state.target_r_ecef;
+        fc_veh->time_step             = TIME_STEP;
 
         fc.reset(fc_init(fc_veh.get()));
         fc_cmd = {};

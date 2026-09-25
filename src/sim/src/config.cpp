@@ -62,6 +62,9 @@ SimConfig load_sim_config(const std::string& path) {
 
             rocket.props.radius = value_or(rn, "radius", rocket.props.radius);
             rocket.props.nosecone_length = value_or(rn, "nosecone_length", rocket.props.nosecone_length);
+            rocket.props.nosecone_mass = value_or(rn, "nosecone_mass", rocket.props.nosecone_mass);
+            // a thin walled cone's CoM sits 2/3 of the way back from the tip
+            rocket.props.nosecone_com_distance = value_or(rn, "nosecone_com_distance", (2.0 / 3.0) * rocket.props.nosecone_length);
 
             // stage count comes from however many stage entries this rocket defines
             bool has_stages = rn.is_mapping() && rn.contains("stage") && rn["stage"].is_sequence();

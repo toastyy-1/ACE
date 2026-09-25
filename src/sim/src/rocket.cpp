@@ -83,6 +83,13 @@ void Rocket::update_mass() {
               + st.m_fuel * (base + st.tip_to_end_length - st.fuel_CoM());
         base += st.tip_to_end_length;
     }
+
+    // the nosecone
+    double m_nose = props.nosecone_mass;
+    double z_nose = base + props.nosecone_length - props.nosecone_com_distance;
+    M += m_nose;
+    m_cm += m_nose * z_nose;
+
     m_current = M;
     m_fuel_current = M_f;
     z_cm = m_cm / M;
@@ -99,6 +106,11 @@ void Rocket::update_mass() {
         I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
         base += L;
     }
+
+    // nosecone is treated as a thin conical shell
+    double h = props.nosecone_length, d_nose = z_nose - z_cm;
+    I_trans += m_nose * (R2 / 4.0 + h * h / 18.0) + m_nose * d_nose * d_nose;
+
     I_body = { I_trans, I_trans, 0.5 * R2 * M };
 }
 
@@ -317,8 +329,8 @@ double Rocket::rocket_body_length() const {
 bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
     double r_norm = r.mag();
 
-    // find rocket length
-    double rocket_length = this->rocket_body_length();
+    // find rocket length, nose tip to aft end
+    double rocket_length = this->rocket_body_length() + props.nosecone_length;
 
     // if its greater than the length of  the rocket, its not worth checking at all lol
     if (com_dist_from_gnd > rocket_length) {
@@ -381,7 +393,7 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     double cos_angle_to_gnd = up_body.z; // body +z is the nose
 
     // contact point is the lowest end of the rocket
-    Vec3 r_contact_from_cm = {0, 0, cos_angle_to_gnd >= 0.0 ? -z_cm : rocket_body_length() - z_cm};
+    Vec3 r_contact_from_cm = {0, 0, cos_angle_to_gnd >= 0.0 ? -z_cm : rocket_body_length() + props.nosecone_length - z_cm};
     double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
     if (sin_angle_to_gnd > 0) {
         r_contact_from_cm.x = -up_body.x * props.radius / sin_angle_to_gnd;

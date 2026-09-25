@@ -12,6 +12,8 @@ rockets:
 
     radius: 0.835 # radius of the rocket (cylinder)
     nosecone_length: 3.0
+    nosecone_mass: 0.0 # mass of the nosecone
+    nosecone_com_distance: 2.0 # defaults to 2/3 of nosecone_length
 
     stage:
       - id: 1

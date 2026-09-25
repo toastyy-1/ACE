@@ -319,6 +319,13 @@ void FlightController::calculate_I() {
         m_CoM += st.m_dry * (base + L - dry_CoM(i)) + cs.fuel[i] * (base + L - fuel_CoM(i));
         base += L;
     }
+
+    // nosecone
+    double m_nose = veh.nosecone_mass;
+    double z_nose = base + veh.nosecone_length - veh.nosecone_com_distance;
+    M_total += m_nose;
+    m_CoM += m_nose * z_nose;
+
     double z_cm = m_CoM / M_total;
     cs.z_cm = z_cm;
 
@@ -341,6 +348,13 @@ void FlightController::calculate_I() {
 
         base += L;
     }
+
+    // nosecone as a thin conical shell
+    double h = veh.nosecone_length, d_nose = z_nose - z_cm;
+    I.z += 0.5 * m_nose * R2;
+    I.x += m_nose * (R2 / 4 + h * h / 18.0) + m_nose * d_nose * d_nose;
+    I.y += m_nose * (R2 / 4 + h * h / 18.0) + m_nose * d_nose * d_nose;
+
     cs.I = I;
 }
 

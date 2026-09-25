@@ -76,6 +76,9 @@ typedef struct fc_stage {
  */
 typedef struct fc_vehicle {
     double radius;                  /* hull radius (m) */
+    double nosecone_length;         /* nosecone length (m) */
+    double nosecone_mass;           /* nosecone/payload mass (kg) */
+    double nosecone_com_distance;   /* nosecone CoM back from the nose tip (m) */
     double Cd;                      /* drag coefficient */
 
     int num_stages;
@@ -293,9 +296,15 @@ static inline double fc_stage_burn_time(const fc_stage* s) {
     return mdot > 0.0 ? s->m_fuel / mdot : 0.0;
 }
 
-// a stage's ideal delta v
+// a stage's ideal delta v if considering the payload
+static inline double fc_stage_delta_v_with_payload(const fc_stage* s, double payload_mass) {
+    double m_empty = s->m_dry + payload_mass;
+    return m_empty > 0.0 ? fc_stage_exhaust_velocity(s) * log((m_empty + s->m_fuel) / m_empty) : 0.0;
+}
+
+// a stage's ideal delta v with nothing on top of it
 static inline double fc_stage_delta_v(const fc_stage* s) {
-    return s->m_dry > 0.0 ? fc_stage_exhaust_velocity(s) * log((s->m_dry + s->m_fuel) / s->m_dry) : 0.0;
+    return fc_stage_delta_v_with_payload(s, 0.0);
 }
 
 #endif
