@@ -20,6 +20,12 @@ COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp 
                src/sim/src/config.cpp src/sim/src/data_export.cpp src/fc/src/fc_api.cpp \
                $(FC_CXX_SRCS)
 
+# Every header under src/. The programs are built in one step from their .cpp
+# files, so without these as prerequisites a header-only edit (theme colours,
+# constants, ...) would leave `make` thinking the program is up to date.
+rwildcard = $(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(subst *,%,$2),$d))
+HEADERS   := $(call rwildcard,src,*.hpp *.h)
+
 # a plain c controller gets compiled on its own and linked in
 build/fc/%.o: src/fc/src/%.c src/fc/inc/fc_api.h
 	@mkdir -p build/fc
@@ -29,7 +35,7 @@ build/fc/%.o: src/fc/src/%.c src/fc/inc/fc_api.h
 RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models.cpp \
                src/renderer/raylib/wire.cpp src/renderer/raylib/earth.cpp \
                src/renderer/raylib/earth_surface.cpp src/renderer/raylib/ground.cpp \
-               src/renderer/raylib/hud.cpp
+               src/renderer/raylib/hud.cpp src/renderer/raylib/coastline.cpp
 RAYLIB_ARCH := -march=native
 TARGET      := program
 
@@ -82,7 +88,7 @@ endif
 # ---------------------------------------------------------------------------
 # raylib (default)
 # ---------------------------------------------------------------------------
-$(TARGET): $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS)
+$(TARGET): $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS) $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(RAYLIB_ARCH) $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS) -o $@ $(LDLIBS)
 
 run: $(TARGET)
@@ -96,7 +102,7 @@ SHADER_BINS := $(SHADER_SRCS:.sc=.bin)
 
 bgfx: $(BGFX_TARGET)
 
-$(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) shaders-bgfx
+$(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) $(HEADERS) shaders-bgfx
 	$(CXX) $(CXXFLAGS) $(BGFX_ARCH) $(BGFX_DEFS) $(BGFX_INCS) \
 	    $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) -o $@ $(BGFX_LIBS) $(BGFX_SYSLIBS)
 

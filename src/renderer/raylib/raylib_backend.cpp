@@ -31,11 +31,13 @@ void RaylibBackend::Init(int width, int height, const char* title) {
 
     wire_.Init();
     earth_.Init();
+    coast_.Init();
     hud_.Init();
 }
 
 void RaylibBackend::Shutdown() {
     earth_.Shutdown();
+    coast_.Shutdown();
     for (wire::GpuMesh& m : meshes_) wire::Destroy(m);
     for (::Texture2D& t : textures_) UnloadTexture(t);
     wire_.Shutdown();
@@ -182,6 +184,9 @@ void RaylibBackend::DrawEarth(const EarthFrame& f) {
     rlSetLineWidth(1.0f);
     int h = GetScreenHeight();
     earth_.Draw(wire_, f, cam_, h > 0 ? (float)GetScreenWidth() / (float)h : 1.0f);
+    rlSetLineWidth(1.5f);
+    coast_.Draw(wire_, f);
+    rlSetLineWidth(1.0f);
     ground_.Draw(*this, f, cam_, labels_);
 }
 

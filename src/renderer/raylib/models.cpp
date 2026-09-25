@@ -91,14 +91,8 @@ RocketModel::HullBell RocketModel::buildHullBell(RenderBackend& b, const RocketD
     geom::appendFrustum(hull, nose_base - radius * 0.18f, nose_base, radius * 1.03f, radius,
                         kSides, kTrim, false, false);
 
-    // Elliptical nose.
-    std::vector<RVec3> prof;
-    const int NS = 5;
-    for (int i = 0; i <= NS; ++i) {
-        float t = (float)i / NS;   // 0 base .. 1 tip
-        prof.push_back({ nose_base + t * noseLen, radius * sqrtf(fmaxf(0.0f, 1.0f - t * t)), 0 });
-    }
-    geom::appendRevolve(hull, prof, kSides, kNose, /*capBase=*/false);
+    // Conical nose, straight sides to a sharp tip.
+    geom::appendFrustum(hull, nose_base, 0.0f, radius, 0.0f, kSides, kNose, false, false);
 
     MeshHandle hullH = b.CreateMesh(hull);
 

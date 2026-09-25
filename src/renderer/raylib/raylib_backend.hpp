@@ -2,6 +2,7 @@
 #include <raylib.h>
 #include <vector>
 #include "../render_backend.hpp"
+#include "coastline.hpp"
 #include "earth.hpp"
 #include "ground.hpp"
 #include "hud.hpp"
@@ -71,6 +72,7 @@ private:
 
     // Backend-owned scene objects.
     WireEarth   earth_;
+    Coastline   coast_;
     GroundMarks ground_;
     RocketModel rocket_;
     DisplayHud  hud_;

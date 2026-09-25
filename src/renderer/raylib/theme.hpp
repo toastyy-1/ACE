@@ -8,7 +8,7 @@
 namespace renderer::theme {
 
 inline constexpr RColor kPrimary  { 255, 255, 255, 255 };  // symbology and values
-inline constexpr RColor kSelect   {   255, 0, 0, 255 };  // labels, references, flown path
+inline constexpr RColor kSelect   {   0, 245, 245, 255 };  // labels, references, flown path
 inline constexpr RColor kActive   {  40, 255,  40, 255 };  // active state, launch site
 inline constexpr RColor kRoute    { 255,  60, 255, 255 };  // plan: predicted path, aim point
 inline constexpr RColor kCaution  { 255, 200,   0, 255 };
@@ -16,6 +16,7 @@ inline constexpr RColor kWarn     { 255,  40,  40, 255 };
 inline constexpr RColor kInactive { 130, 130, 130, 255 };  // off / secondary
 inline constexpr RColor kBorder   {  90,  90,  90, 255 };  // box outlines
 inline constexpr RColor kGrid     {  35,  65,  95, 255 };  // the globe's grid
+inline constexpr RColor kCoast    { 200, 200, 200, 255 };  // continent outlines
 
 inline RColor withAlpha(RColor c, unsigned char a) { c.a = a; return c; }
 

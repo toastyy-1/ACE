@@ -52,18 +52,18 @@ void GroundMarks::Draw(RenderBackend& b, const EarthFrame& f, const RCamera& cam
     if (alt > 0.05) {   // skip on the pad, where it would only clutter the rocket
         const int dashes = 24;
         for (int i = 0; i < dashes; ++i)
-            seg(G * (i / (double)dashes), G * ((i + 0.5) / dashes), withAlpha(kSelect, 200));
+            seg(G * (i / (double)dashes), G * ((i + 0.5) / dashes), withAlpha(kActive, 200));
         char buf[32];
         std::snprintf(buf, sizeof buf, "ALT %.2f KM", alt);
-        labels.push_back({ toF(G * 0.5), buf, kSelect });
+        labels.push_back({ toF(G * 0.5), buf, kActive });
     }
 
     // A cross on the ground where it lands, sized to stay readable at any zoom
     // and lifted just clear of the globe's surface lines.
     const double s    = (eye - G).mag() * 0.015;
     const Vec3   base = G + up * (s * 0.02);
-    seg(base - north * s, base + north * s, kSelect);
-    seg(base - east * s,  base + east * s,  kSelect);
+    seg(base - north * s, base + north * s, kActive);
+    seg(base - east * s,  base + east * s,  kActive);
 
     b.DrawLines(lines_.data(), lines_.size(), 1.0f);
 }
