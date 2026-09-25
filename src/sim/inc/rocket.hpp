@@ -9,7 +9,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "renderer/bgfx/earth_bump_map.hpp"
+#include "renderer/earth_surface.hpp"
 
 struct RocketStartState {
     Vec3 origin_r_eci;
@@ -110,7 +110,7 @@ class Rocket {
     void apply_fc_commands();
 
     // topography
-    renderer::EarthBumpMap* topo = &renderer::EarthBumpMap::Get();
+    renderer::EarthSurface* topo = &renderer::EarthSurface::Get();
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // rocket static configuration                                                               //

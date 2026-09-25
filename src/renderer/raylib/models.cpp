@@ -1,104 +1,199 @@
 #include "models.hpp"
 #include "../geometry.hpp"
 #include "../../constants.hpp"
+#include <cmath>
 
 namespace renderer {
 
 namespace {
-constexpr int kSides = 24;   // hull/bell facet count (smoother than the old 16)
+
+constexpr int kSides = 16;   // hull/bell facets: 16 longerons read cleanly as wire
+
+// cm_dist moves as propellant burns. The hull is built nose-at-origin and slid
+// into place per frame, so it isn't part of the cache key.
+bool sameDims(const RocketDims& a, const RocketDims& b) {
+    return a.length == b.length && a.radius == b.radius && a.engine_dist == b.engine_dist;
 }
+
+float clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
+
+RVec3 along(const RVec3& p, const RVec3& dir, double metres) {
+    float k = (float)(metres * M_TO_KM);
+    return { p.x + dir.x * k, p.y + dir.y * k, p.z + dir.z * k };
+}
+
+// Additive, see-through, no depth write: plume and explosion layers.
+Material glow(RColor c, float alpha) {
+    Material m;
+    m.color       = { c.r, c.g, c.b, (unsigned char)(clamp01(alpha) * 255.0f) };
+    m.blend       = BlendMode::Additive;
+    m.depth_write = false;
+    return m;
+}
+
+} // namespace
 
 void RocketModel::Ensure(RenderBackend& b, const RocketDims& dims) {
-    if (cone_ == 0) {   // first use: build the dimension-independent meshes too
-        cone_   = b.CreateMesh(geom::buildCone(kSides));
-        sphere_ = b.CreateMesh(geom::buildSphere(1.0f, 16, 24));
-        dims_   = dims;
-        buildHullBell(b);
-        return;
+    if (cone_ == 0) {   // first use: the dimension-independent meshes
+        cone_    = b.CreateMesh(geom::buildCone(12));
+        diamond_ = b.CreateMesh(geom::buildSphere(1.0f, 2, 4));
+        shell_   = b.CreateMesh(geom::buildSphere(1.0f, 8, 12));
     }
-    if (dims.length == dims_.length && dims.cm_dist == dims_.cm_dist &&
-        dims.radius == dims_.radius && dims.engine_dist == dims_.engine_dist)
-        return;
-    dims_ = dims;
-    buildHullBell(b);   // staging shortened the stack; rebuild hull + bell
+    if (hull_ != 0 && sameDims(dims_, dims)) { dims_ = dims; return; }
+    for (const HullBell& e : cache_) {
+        if (sameDims(e.dims, dims)) { hull_ = e.hull; bell_ = e.bell; dims_ = dims; return; }
+    }
+    HullBell e = buildHullBell(b, dims);
+    cache_.push_back(e);
+    hull_ = e.hull; bell_ = e.bell; dims_ = dims;
 }
 
-void RocketModel::buildHullBell(RenderBackend& b) {
-    if (hull_) b.DestroyMesh(hull_);
-    if (bell_) b.DestroyMesh(bell_);
+RocketModel::HullBell RocketModel::buildHullBell(RenderBackend& b, const RocketDims& d) const {
+    const float L      = (float)d.length;
+    const float radius = (float)d.radius;
 
-    const float L      = (float)dims_.length;
-    const float cm     = (float)dims_.cm_dist;
-    const float radius = (float)dims_.radius;
+    const RColor kBody = { 205, 215, 230, 255 };  // hull
+    const RColor kNose = { 235,  90,  80, 255 };  // red cap
+    const RColor kTrim = { 110, 180, 235, 255 };  // collar
+    const RColor kBell = { 165, 170, 185, 255 };  // nozzle
 
-    // Body frame: +Z = nose, CM at the origin. Z of a point `d` metres below the
-    // nose tip is (cm_dist - d), matching the old `along()` helper.
-    const float cone_len   = L * 0.18f;
-    const float nose_z     = cm;                          // d = 0
-    const float cone_z     = cm - cone_len;
-    const float shoulder_z = cm - (cone_len + L * 0.04f);
-    const float tail_z     = cm - L;
-
-    const RColor kBody = { 226, 229, 235, 255 };  // brushed silver
-    const RColor kNose = { 196,  58,  58, 255 };  // red cap
-    const RColor kFin  = {  74,  80,  92, 255 };  // gunmetal
-    const RColor kBell = {  54,  56,  62, 255 };  // dark nozzle
+    // Body frame: +Z = nose, tip at the origin. The nose is a fixed size so the
+    // tip looks the same across staging.
+    const float noseLen   = fminf(radius * 2.8f, 0.6f * L);
+    const float nose_base = -noseLen;
+    const float tail_z    = -L;
 
     Mesh hull;
-    geom::appendFrustum(hull, tail_z, cone_z, radius, radius, kSides, kBody);            // main body
-    geom::appendFrustum(hull, shoulder_z, cone_z, radius * 1.04f, radius, kSides, kFin); // collar
-    geom::appendFrustum(hull, cone_z, nose_z, radius, 0.0f, kSides, kNose, true, false); // nose cone
 
-    // Four swept tail fins, each a double-sided triangle (leading edge up the
-    // body, trailing edge swept past the tail).
-    const float finUp   = L * 0.16f;
-    const float finBack = L * 0.05f;
-    const float finOut  = radius * 2.4f;
-    const RVec3 rads[4] = { {1,0,0}, {0,1,0}, {-1,0,0}, {0,-1,0} };
-    for (const RVec3& rad : rads) {
-        RVec3 a  = { rad.x*radius,          rad.y*radius,          tail_z + finUp };
-        RVec3 bb = { rad.x*radius,          rad.y*radius,          tail_z };
-        RVec3 c  = { rad.x*(radius+finOut), rad.y*(radius+finOut), tail_z - finBack };
-        geom::appendTriangle(hull, a, bb, c, kFin, /*doubleSided=*/true);
+    // Barrel in stacked sections, so the wire shows ring frames about every
+    // three diameters. Only the bottom one is capped.
+    const float barrel = nose_base - tail_z;
+    int sections = (int)lroundf(barrel / (radius * 6.0f));
+    sections = sections < 1 ? 1 : (sections > 8 ? 8 : sections);
+    for (int s = 0; s < sections; ++s) {
+        float z0 = tail_z + barrel * s / sections;
+        float z1 = tail_z + barrel * (s + 1) / sections;
+        geom::appendFrustum(hull, z0, z1, radius, radius, kSides, kBody, s == 0, false);
     }
-    hull_ = b.CreateMesh(hull);
 
-    // Engine bell in a frame centred on the gimbal pivot (+Z = nose,
-    // un-gimballed): throat at z=0 (r=0.4), exit 1.5 m down at z=-1.5 (r=1.15).
+    // Thin collar where the nose meets the barrel.
+    geom::appendFrustum(hull, nose_base - radius * 0.18f, nose_base, radius * 1.03f, radius,
+                        kSides, kTrim, false, false);
+
+    // Elliptical nose.
+    std::vector<RVec3> prof;
+    const int NS = 5;
+    for (int i = 0; i <= NS; ++i) {
+        float t = (float)i / NS;   // 0 base .. 1 tip
+        prof.push_back({ nose_base + t * noseLen, radius * sqrtf(fmaxf(0.0f, 1.0f - t * t)), 0 });
+    }
+    geom::appendRevolve(hull, prof, kSides, kNose, /*capBase=*/false);
+
+    MeshHandle hullH = b.CreateMesh(hull);
+
+    // Engine bell in the gimbal-pivot frame: throat at z=0, flaring to the exit
+    // 1.5 m down (where the renderer puts the nozzle). Open at both ends.
     Mesh bell;
-    geom::appendFrustum(bell, -1.5f, 0.0f, radius * 1.15f, radius * 0.4f, kSides, kBell);
-    bell_ = b.CreateMesh(bell);
+    std::vector<RVec3> bp;
+    const int BS = 4;
+    const float rT = radius * 0.4f, rE = radius * 1.15f;
+    for (int i = BS; i >= 0; --i) {   // exit -> throat, so z increases
+        float u = (float)i / BS;
+        bp.push_back({ -1.5f * u, rT + (rE - rT) * powf(u, 1.5f), 0 });
+    }
+    geom::appendRevolve(bell, bp, kSides, kBell, /*capBase=*/false);
+    MeshHandle bellH = b.CreateMesh(bell);
+
+    return { d, hullH, bellH };
 }
 
 void RocketModel::Draw(RenderBackend& b, const RocketFrame& f) const {
-    Material solid;  // white tint, alpha, depth-write on, unlit — shows vertex colours
-    b.DrawModel(hull_, f.hull, solid);
+    // Destroyed: the explosion replaces the intact hull + plume entirely.
+    if (f.detonated) { drawDetonation(b, f); return; }
+
+    // The hull mesh is built nose-at-origin; slide it down its axis by cm_dist so
+    // the CoM lands at st.r (which f.hull maps to the mesh origin).
+    RMat4 hullM = rmath::mul(f.hull, rmath::translate({ 0, 0, (float)f.dims.cm_dist }));
+
+    Material solid;
+    solid.lit = true;   // lit = the backend applies aerodynamic heating
+    b.DrawModel(hull_, hullM, solid);
     b.DrawModel(bell_, f.bell, solid);
 
-    if (!f.firing) return;
+    if (f.firing) drawPlume(b, f);
+}
 
-    // Exhaust plume: nested additive cones streaming out the nozzle along the
-    // exhaust direction, depth-write off so the layers glow through each other.
+void RocketModel::drawPlume(RenderBackend& b, const RocketFrame& f) const {
+    // Nested wire cones streaming out of the nozzle along the exhaust direction.
     const double radius = dims_.radius;
-    const double Lm     = dims_.length * 0.8 * f.thrust * f.flick;  // plume length, metres
-    auto cone = [&](double r0_m, double len_m, RColor c) {
-        c.a = (unsigned char)(c.a * f.thrust);
-        RVec3 apex = { f.nozzle.x + f.exhaust_dir.x * (float)(len_m * M_TO_KM),
-                       f.nozzle.y + f.exhaust_dir.y * (float)(len_m * M_TO_KM),
-                       f.nozzle.z + f.exhaust_dir.z * (float)(len_m * M_TO_KM) };
-        Material m; m.color = c; m.blend = BlendMode::Additive; m.depth_write = false;
-        b.DrawModel(cone_, rmath::orientCone(f.nozzle, apex, (float)(r0_m * M_TO_KM)), m);
+    const double Lm     = dims_.length * 0.8 * f.thrust * f.flick;   // plume length, metres
+    auto cone = [&](double r0_m, double len_m, RColor c, float alpha) {
+        RVec3 apex = along(f.nozzle, f.exhaust_dir, len_m);
+        b.DrawModel(cone_, rmath::orientCone(f.nozzle, apex, (float)(r0_m * M_TO_KM)),
+                    glow(c, alpha * f.thrust));
     };
-    cone(radius * 1.5,  Lm * 1.25, { 180,  70, 20,  90 });   // outer haze
-    cone(radius * 1.0,  Lm,        { 255, 140, 40, 140 });   // flame body
-    cone(radius * 0.55, Lm * 0.6,  { 255, 235, 180, 210 });  // white-hot core
+    cone(radius * 1.5,  Lm * 1.25, { 255, 110,  40, 255 }, 0.45f);   // outer haze
+    cone(radius * 1.0,  Lm,        { 255, 160,  60, 255 }, 0.75f);   // flame body
+    cone(radius * 0.55, Lm * 0.6,  { 255, 235, 180, 255 }, 0.90f);   // white-hot core
 
-    // Nozzle glow.
-    const float radiusW = (float)(radius * M_TO_KM);
-    Material g;
-    g.color = { 255, 190, 90, (unsigned char)(150 * f.thrust) };
-    g.blend = BlendMode::Additive; g.depth_write = false;
-    b.DrawModel(sphere_, rmath::placeSphere(f.nozzle, radiusW * (0.7f + 0.2f * f.flick)), g);
+    // Mach diamonds: shock nodes that only form in atmosphere (over/under-
+    // expanded nozzle), so they fade with altitude and down the plume.
+    if (f.air <= 0.12f) return;
+    const int   nD      = 5;
+    const float spacing = (float)(radius * 1.7) * (0.15f + 0.5f * (1.0f - f.air));   // metres
+    for (int k = 1; k <= nD; ++k) {
+        float dist = spacing * k;
+        if (dist > Lm * 0.95) break;
+        float fade = 1.0f - (float)(k - 1) / nD;
+        float sz   = (float)(radius * 0.45 * M_TO_KM) * (0.6f + 0.4f * fade);
+        b.DrawModel(diamond_, rmath::placeSphere(along(f.nozzle, f.exhaust_dir, dist), sz),
+                    glow({ 215, 230, 255, 255 }, f.air * f.thrust * fade));
+    }
+}
+
+void RocketModel::drawDetonation(RenderBackend& b, const RocketFrame& f) const {
+    const float a      = f.det_time;    // seconds since detonation
+    const float Dfire  = 1.5f;          // fireball lifetime
+    const float Dtotal = 4.0f;          // incl. lingering smoke
+    if (a > Dtotal) return;             // fully dissipated: the rocket is gone
+
+    // Concentric wire shells about the rocket's position, a few tens of metres
+    // across (floored so small rockets still read), same timeline as bgfx.
+    const float Rmax = (float)(fmax(dims_.radius * 25.0, 30.0) * M_TO_KM);   // km
+    auto shell = [&](float radiusKm, RColor c, float alpha) {
+        if (alpha <= 0.002f || radiusKm <= 0.0f) return;
+        b.DrawModel(shell_, rmath::placeSphere(f.center, radiusKm), glow(c, alpha));
+    };
+
+    // Flash: a brief bright burst at t=0.
+    if (a < 0.12f) {
+        float p = a / 0.12f;
+        shell(Rmax * (0.5f + 0.6f * p), { 255, 250, 235, 255 }, 1.0f - p);
+    }
+
+    // Fireball: nested layers, ease-out expansion, fading over Dfire.
+    if (a < Dfire) {
+        float p    = a / Dfire;
+        float R    = Rmax * (1.0f - (1.0f - p) * (1.0f - p));   // fast then slowing
+        float env  = 1.0f - p;
+        float turb = 0.9f + 0.15f * f.flick;
+        shell(R * 1.15f * turb, { 200,  70,  20, 255 }, env * 0.55f);   // smoky outer
+        shell(R * 0.85f * turb, { 255, 130,  40, 255 }, env * 0.85f);   // flame body
+        shell(R * 0.50f,        { 255, 230, 180, 255 }, 1.0f - p * p);  // hot core
+    }
+
+    // Shockwave: a fast thin front, gone by 0.6 s.
+    if (a < 0.6f) {
+        float p = a / 0.6f;
+        shell(Rmax * (0.4f + 1.8f * p), { 200, 220, 255, 255 }, (1.0f - p) * 0.5f);
+    }
+
+    // Lingering smoke: a dim shell that slowly grows and fades out by Dtotal.
+    const float s0 = Dfire * 0.6f;
+    if (a > s0) {
+        float q = clamp01((a - s0) / (Dtotal - s0));
+        shell(Rmax * (1.0f + 0.6f * q), { 120, 80, 60, 255 }, (1.0f - q) * 0.45f);
+    }
 }
 
 }

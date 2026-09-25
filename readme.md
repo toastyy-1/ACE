@@ -9,7 +9,7 @@ A 6DoF active control testing suite for flight controllers.
 | what | why | fedora | debian/ubuntu |
 | --- | --- | --- | --- |
 | `g++` with C++20, `gcc` C11, `make` | everything | `gcc-c++ make` | `build-essential` |
-| raylib | default renderer | `raylib-devel` | `libraylib-dev` |
+| raylib | raylib renderer (default) | `raylib-devel` | `libraylib-dev` |
 | cmake, glfw | bgfx renderer only | `cmake glfw-devel` | `cmake libglfw3-dev` |
 | git-lfs, unzip | bgfx earth textures only | `git-lfs unzip` | `git-lfs unzip` |
 
@@ -25,15 +25,21 @@ git submodule update --init --recursive   # bgfx.cmake, only needed for `make bg
 
 ## 3. Build
 
-**raylib (legacy):**
+There are two renderers. Both show the same flight: trajectories, trails, labels, pins, telemetry,
+the plume, staging, and detonations. Pick based on how much graphics you want.
+
+**raylib (lightweight):**
+
+The Earth is a smooth sphere with no terrain, and in this build the sim uses that same sphere as its ground, so launch sites sit at sea level.
 
 ```sh
 make run
 ```
 
-**bgfx (current):**
+**bgfx (full graphics):**
 
-Note: it is suggested that you build with bgfx as it's graphical pipeline is actively developed compared to raylib which is outdated and likely unstable or doesnt expose newer features.
+Textured Earth with real terrain (the sim's ground follows the bump map), clouds, atmosphere, and
+night lights. Needs the ~500 MB texture archive and the bgfx submodule.
 
 ```sh
 make bgfx-deps

@@ -1,9 +1,6 @@
 #include "raylib_backend.hpp"
-#include "../geometry.hpp"
-#include "../../constants.hpp"
 #include <raymath.h>
 #include <rlgl.h>
-#include <cassert>
 #include <vector>
 
 namespace renderer {
@@ -12,6 +9,13 @@ namespace {
 
 inline Vector3 toRl(const RVec3& v) { return { v.x, v.y, v.z }; }
 inline Color   toRl(RColor c)       { return { c.r, c.g, c.b, c.a }; }
+
+// raylib's Matrix field m{k} is column-major element k, like RMat4's m[k]; the
+// structs' memory orders differ, so copy by name (not memcpy).
+RMat4 fromRl(const Matrix& r) {
+    return RMat4{{ r.m0,  r.m1,  r.m2,  r.m3,  r.m4,  r.m5,  r.m6,  r.m7,
+                   r.m8,  r.m9,  r.m10, r.m11, r.m12, r.m13, r.m14, r.m15 }};
+}
 
 // Greek-capable TTF (bundled). Loaded once; ASCII + the Greek block are baked so
 // rocket IDs like "α3" render. Relative to the repo root (app runs from there).
@@ -25,75 +29,19 @@ std::vector<int> fontCodepoints() {
     return cp;
 }
 
-// RMat4 is column-major and raylib's Matrix field m{k} is the column-major
-// element k, so a field-by-field copy is the correct conversion (the structs'
-// in-memory orders differ, so this must NOT be a memcpy).
-inline Matrix toRl(const RMat4& s) {
-    Matrix r;
-    r.m0 = s.m[0];  r.m1 = s.m[1];   r.m2  = s.m[2];   r.m3  = s.m[3];
-    r.m4 = s.m[4];  r.m5 = s.m[5];   r.m6  = s.m[6];   r.m7  = s.m[7];
-    r.m8 = s.m[8];  r.m9 = s.m[9];   r.m10 = s.m[10];  r.m11 = s.m[11];
-    r.m12 = s.m[12]; r.m13 = s.m[13]; r.m14 = s.m[14]; r.m15 = s.m[15];
-    return r;
-}
-
-const char* kEarthVS = R"(#version 330
-in vec3 vertexPosition;
-in vec2 vertexTexCoord;
-uniform mat4 mvp;
-uniform mat4 matModel;
-out vec2 fragTexCoord;
-out vec3 fragWorldPos;
-void main() {
-    fragTexCoord = vertexTexCoord;
-    fragWorldPos = (matModel*vec4(vertexPosition, 1.0)).xyz;
-    gl_Position  = mvp*vec4(vertexPosition, 1.0);
-}
-)";
-
-const char* kEarthFS = R"(#version 330
-in vec2 fragTexCoord;
-in vec3 fragWorldPos;
-uniform sampler2D texture0;
-uniform vec4 colDiffuse;
-uniform vec3 sunDir;       // direction TO the sun (view)
-uniform vec3 earthCenter;  // sphere centre (view)
-uniform vec3 camPos;       // camera position (view)
-out vec4 finalColor;
-void main() {
-    vec3 N = normalize(fragWorldPos - earthCenter);
-    vec3 L = normalize(sunDir);
-    vec3 V = normalize(camPos - fragWorldPos);
-
-    vec3  albedo = texture(texture0, fragTexCoord).rgb*colDiffuse.rgb;
-    float diff   = max(dot(N, L), 0.0);
-    vec3  color  = albedo*(0.15 + 0.85*diff);            // ambient + lambert
-
-    // Atmospheric limb glow: strongest at the silhouette, brighter in sunlight.
-    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-    color += vec3(0.30, 0.50, 0.95)*rim*(0.35 + 0.65*diff);
-
-    finalColor = vec4(color, 1.0);
-}
-)";
-
 } // namespace
 
 void RaylibBackend::Init(int width, int height, const char* title) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
+    // MSAA keeps the wireframe lines smooth. 60 fps is plenty to watch a flight
+    // and keeps the renderer's share of the machine small on high-refresh
+    // displays; vsync stops tearing.
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(width, height, title);
     SetWindowMonitor(0);
     SetTargetFPS(60);
 
-    defaultMat_ = LoadMaterialDefault();
-    defaultTex_ = defaultMat_.maps[MATERIAL_MAP_DIFFUSE].texture;  // raylib's 1x1 white
-
-    earthShader_    = LoadShaderFromMemory(kEarthVS, kEarthFS);
-    sunDirLoc_      = GetShaderLocation(earthShader_, "sunDir");
-    earthCenterLoc_ = GetShaderLocation(earthShader_, "earthCenter");
-    camPosLoc_      = GetShaderLocation(earthShader_, "camPos");
-    earthMat_        = LoadMaterialDefault();
-    earthMat_.shader = earthShader_;
+    wire_.Init();
+    earth_.Init();
 
     // Bake the Greek-capable font at a comfortable size for scaling down.
     std::vector<int> cp = fontCodepoints();
@@ -103,9 +51,10 @@ void RaylibBackend::Init(int width, int height, const char* title) {
 }
 
 void RaylibBackend::Shutdown() {
-    for (auto& m : meshes_)   UnloadMesh(m);
-    for (auto& t : textures_) UnloadTexture(t);
-    UnloadShader(earthShader_);
+    earth_.Shutdown();
+    for (wire::GpuMesh& m : meshes_) wire::Destroy(m);
+    for (::Texture2D& t : textures_) UnloadTexture(t);
+    wire_.Shutdown();
     if (haveFont_) UnloadFont(font_);
     CloseWindow();
 }
@@ -148,59 +97,48 @@ TextureHandle RaylibBackend::LoadTexture(const char* path) {
 }
 
 MeshHandle RaylibBackend::CreateMesh(const Mesh& m) {
-    assert(m.verts.size() <= 65535 && "raylib mesh indices are 16-bit");
-    ::Mesh rm = { 0 };
-    rm.vertexCount   = (int)m.verts.size();
-    rm.triangleCount = (int)(m.idx.size() / 3);
-    rm.vertices  = (float*)MemAlloc(rm.vertexCount * 3 * sizeof(float));
-    rm.normals   = (float*)MemAlloc(rm.vertexCount * 3 * sizeof(float));
-    rm.texcoords = (float*)MemAlloc(rm.vertexCount * 2 * sizeof(float));
-    rm.colors    = (unsigned char*)MemAlloc(rm.vertexCount * 4);
-    rm.indices   = (unsigned short*)MemAlloc(m.idx.size() * sizeof(unsigned short));
-    for (int i = 0; i < rm.vertexCount; ++i) {
-        const Vertex& v = m.verts[i];
-        rm.vertices[i*3+0] = v.pos.x; rm.vertices[i*3+1] = v.pos.y; rm.vertices[i*3+2] = v.pos.z;
-        rm.normals[i*3+0]  = v.normal.x; rm.normals[i*3+1] = v.normal.y; rm.normals[i*3+2] = v.normal.z;
-        rm.texcoords[i*2+0] = v.u; rm.texcoords[i*2+1] = v.v;
-        rm.colors[i*4+0] = v.color.r; rm.colors[i*4+1] = v.color.g;
-        rm.colors[i*4+2] = v.color.b; rm.colors[i*4+3] = v.color.a;
-    }
-    for (size_t i = 0; i < m.idx.size(); ++i) rm.indices[i] = (unsigned short)m.idx[i];
-    UploadMesh(&rm, false);
-    meshes_.push_back(rm);
+    meshes_.push_back(wire::Upload(m.verts, m.idx, wire::FeatureEdges(m)));
     return (MeshHandle)meshes_.size();
 }
 
 void RaylibBackend::DestroyMesh(MeshHandle h) {
     if (h == 0 || h > meshes_.size()) return;
-    UnloadMesh(meshes_[h - 1]);
-    meshes_[h - 1] = ::Mesh{ 0 };   // tombstone; handle is not reused
+    wire::Destroy(meshes_[h - 1]);   // tombstone (draws skip it); handle is not reused
 }
 
 void RaylibBackend::BeginFrame(RColor clear) {
+    clear_ = clear;
     BeginDrawing();
     ClearBackground(toRl(clear));
 }
 
-void RaylibBackend::EndFrame() { EndDrawing(); }
+void RaylibBackend::EndFrame() {
+    EndDrawing();
+    wire_.NextFrame();
+}
 
 void RaylibBackend::SetClipPlanes(float near_plane, float far_plane) {
     rlSetClipPlanes(near_plane, far_plane);
 }
 
 void RaylibBackend::Begin3D(const RCamera& cam) {
-    Camera3D c {
+    cam_   = cam;
+    cam3d_ = Camera3D {
         toRl(cam.position),
         toRl(cam.target),
         toRl(cam.up),
         cam.fovy,
         CAMERA_PERSPECTIVE,
     };
-    cam3d_ = c;   // kept for WorldToScreen
-    BeginMode3D(c);
+    BeginMode3D(cam3d_);
+    // BeginMode3D has just loaded this camera's projection and view into rlgl.
+    wire_.Begin(rmath::mul(fromRl(rlGetMatrixProjection()), fromRl(rlGetMatrixModelview())), clear_);
 }
 
-void RaylibBackend::End3D() { EndMode3D(); }
+void RaylibBackend::End3D() {
+    wire_.End();
+    EndMode3D();
+}
 
 ScreenPoint RaylibBackend::WorldToScreen(const RVec3& viewPos) const {
     // Cull points behind the camera: GetWorldToScreen still returns coordinates
@@ -217,46 +155,40 @@ int RaylibBackend::ScreenHeight() const { return GetScreenHeight(); }
 
 void RaylibBackend::DrawModel(MeshHandle h, const RMat4& model, const Material& mat) {
     if (h == 0 || h > meshes_.size()) return;
-    defaultMat_.maps[MATERIAL_MAP_DIFFUSE].color   = toRl(mat.color);
-    defaultMat_.maps[MATERIAL_MAP_DIFFUSE].texture =
-        mat.texture ? textures_[mat.texture - 1] : defaultTex_;
+    const wire::GpuMesh& m = meshes_[h - 1];
+    const bool additive = mat.blend == BlendMode::Additive;
 
-    if (mat.blend == BlendMode::Additive) BeginBlendMode(BLEND_ADDITIVE);
+    // Opaque meshes hide what's behind them; see-through ones are just edges.
+    if (!additive && mat.depth_write) wire_.Fill(m, model);
+
+    wire::Shading s;
+    s.tint = mat.color;
+    if (mat.lit) { s.heatDir = heatDir_; s.heat = heat_; }
+    rlSetLineWidth(additive ? 1.0f : 1.5f);
+    if (additive) rlSetBlendMode(RL_BLEND_ADDITIVE);
     if (!mat.depth_write) rlDisableDepthMask();
-    DrawMesh(meshes_[h - 1], defaultMat_, toRl(model));
+    wire_.Edges(m, model, s);
     if (!mat.depth_write) rlEnableDepthMask();
-    if (mat.blend == BlendMode::Additive) EndBlendMode();
+    if (additive) rlSetBlendMode(RL_BLEND_ALPHA);
 }
 
 void RaylibBackend::DrawLines(const LineVertex* v, size_t count, float width) {
     rlSetLineWidth(width);
-    for (size_t i = 0; i + 1 < count; i += 2)
-        ::DrawLine3D(toRl(v[i].pos), toRl(v[i + 1].pos), toRl(v[i].color));
+    wire_.Lines(v, count);
 }
 
 void RaylibBackend::DrawRocket(const RocketFrame& f) {
-    rocket_.Ensure(*this, f.dims);   // build on first use, rebuild on staging
+    rocket_.Ensure(*this, f.dims);   // build on first sight of each stage config
+    heatDir_ = f.vel_dir;
+    heat_    = f.heating > 0.03f ? f.heating : 0.0f;
     rocket_.Draw(*this, f);
-}
-
-void RaylibBackend::ensureEarth() {
-    if (earthMesh_) return;
-    // Sphere in metres (radius EARTH_RADIUS_M) so the renderer's view basis
-    // (metres -> km) applies to it like everything else. The 12 deg east offset
-    // matches the texture alignment.
-    const float kLonOffset = 0.5f;   // half-turn: align Greenwich-centred map with ECI (see bgfx backend)
-    earthMesh_ = CreateMesh(geom::buildSphere((float)EARTH_RADIUS, 128, 128, kLonOffset));
-    earthTex_  = LoadTexture("src/renderer/raylib/world.jpg");
+    heat_    = 0.0f;
 }
 
 void RaylibBackend::DrawEarth(const EarthFrame& f) {
-    ensureEarth();
-    Vector3 sun = toRl(f.sun_dir), c = toRl(f.center), cam = toRl(f.cam_pos);
-    SetShaderValue(earthShader_, sunDirLoc_,      &sun, SHADER_UNIFORM_VEC3);
-    SetShaderValue(earthShader_, earthCenterLoc_, &c,   SHADER_UNIFORM_VEC3);
-    SetShaderValue(earthShader_, camPosLoc_,      &cam, SHADER_UNIFORM_VEC3);
-    earthMat_.maps[MATERIAL_MAP_DIFFUSE].texture = textures_[earthTex_ - 1];
-    DrawMesh(meshes_[earthMesh_ - 1], earthMat_, toRl(f.model));
+    rlSetLineWidth(1.0f);
+    int h = GetScreenHeight();
+    earth_.Draw(wire_, f, cam_, h > 0 ? (float)GetScreenWidth() / (float)h : 1.0f);
 }
 
 void RaylibBackend::DrawRect(int x, int y, int w, int h, RColor c) {

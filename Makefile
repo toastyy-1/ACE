@@ -25,7 +25,10 @@ build/fc/%.o: src/fc/src/%.c src/fc/inc/fc_api.h
 	@mkdir -p build/fc
 	$(CC) $(CFLAGS) -c $< -o $@
 
-RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models.cpp
+# --- raylib backend (`make`): wireframe, no textures, no bgfx needed ---
+RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models.cpp \
+               src/renderer/raylib/wire.cpp src/renderer/raylib/earth.cpp \
+               src/renderer/raylib/earth_surface.cpp
 RAYLIB_ARCH := -march=native
 TARGET      := program
 

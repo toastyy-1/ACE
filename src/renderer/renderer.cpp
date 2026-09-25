@@ -325,7 +325,7 @@ void Renderer::DrawOneRocket(const RocketState& st, float thrustLevel, double de
     f.exhaust_dir = rvDir(-thrust_eci);
 
     // Detonation: anchor the explosion at the rocket's view-space position and let
-    // the backend animate off the elapsed time (raylib ignores these).
+    // the backend animate off the elapsed time.
     f.center    = ToView(st.r);
     f.detonated = detTime >= 0.0;
     f.det_time  = (float)fmax(0.0, detTime);

@@ -2,10 +2,16 @@
 #include <raylib.h>
 #include <vector>
 #include "../render_backend.hpp"
+#include "earth.hpp"
 #include "models.hpp"
+#include "wire.hpp"
 
 namespace renderer {
 
+// Lightweight raylib backend (`make`): no bgfx, no textures, no shaders beyond
+// one tiny wireframe program. Every solid is drawn as its hidden-line outline
+// (wire.hpp), the Earth as an LOD grid over a smooth sphere (earth.hpp), and
+// the overlays the renderer submits as lines are streamed straight to the GPU.
 class RaylibBackend : public RenderBackend {
 public:
     void Init(int width, int height, const char* title) override;
@@ -41,32 +47,29 @@ public:
     void DrawFPS(int x, int y) override;
 
 private:
-    void ensureEarth();   // lazily build the Earth mesh + texture on first draw
+    wire::Pipeline             wire_;
+    std::vector<wire::GpuMesh> meshes_;     // handle = index + 1
+    std::vector<::Texture2D>   textures_;   // handle = index + 1 (unused by this backend's scene)
 
-    std::vector<::Mesh>      meshes_;     // handle = index + 1
-    std::vector<::Texture2D> textures_;   // handle = index + 1
+    RColor clear_ = kBlack;   // background, which is also the hidden-line fill colour
 
-    ::Material defaultMat_{};   // default shader, used by DrawModel
-    ::Material earthMat_{};     // earth shader, used by DrawEarth
-    ::Texture2D defaultTex_{};  // raylib's 1x1 white, for untextured draws
-
-    ::Shader earthShader_{};
-    int      sunDirLoc_      = -1;
-    int      earthCenterLoc_ = -1;
-    int      camPosLoc_      = -1;
+    // Aerodynamic heating for the rocket being drawn, applied to lit meshes
+    // (set by DrawRocket around its hull draws).
+    RVec3 heatDir_ { 0, 0, 1 };
+    float heat_ = 0.0f;
 
     // Greek-capable font for overlay text (Font ID labels + telemetry). Falls
     // back to raylib's built-in ASCII font if the TTF fails to load.
-    ::Font   font_{};
-    bool     haveFont_ = false;
+    ::Font font_{};
+    bool   haveFont_ = false;
 
-    // Last camera handed to Begin3D, kept so WorldToScreen can project labels.
+    // Last camera handed to Begin3D, kept for the Earth's LOD and WorldToScreen.
+    RCamera  cam_{};
     Camera3D cam3d_{};
 
-    // Backend-owned scene objects (the simple reference look).
-    RocketModel   rocket_{};
-    MeshHandle    earthMesh_ = 0;
-    TextureHandle earthTex_  = 0;
+    // Backend-owned scene objects.
+    WireEarth   earth_;
+    RocketModel rocket_;
 };
 
 }

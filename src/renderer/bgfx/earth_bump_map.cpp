@@ -1,5 +1,6 @@
 #include "earth_bump_map.hpp"
 #include "bgfx_util.hpp"
+#include "../earth_surface.hpp"
 
 #include <bimg/decode.h>
 
@@ -194,6 +195,20 @@ double EarthBumpMap::SurfaceRadius2D(double lat_deg, double lon_deg) const {
 
 double EarthBumpMap::Altitude(const Vec3& eci_m) const {
     return eci_m.mag() - SurfaceRadius3D(eci_m);
+}
+
+// The bgfx build's sim ground is this map's terrain (see earth_surface.hpp).
+EarthSurface& EarthSurface::Get() {
+    static EarthSurface s;
+    return s;
+}
+
+double EarthSurface::SurfaceRadius3D(const Vec3& r) const {
+    return EarthBumpMap::Get().SurfaceRadius3D(r);
+}
+
+double EarthSurface::SurfaceRadius2D(double lat_deg, double lon_deg) const {
+    return EarthBumpMap::Get().SurfaceRadius2D(lat_deg, lon_deg);
 }
 
 }

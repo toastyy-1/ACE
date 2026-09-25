@@ -35,9 +35,9 @@ struct RocketFrame {
     RVec3 nozzle;          // bell exit, view space (km)
     RVec3 exhaust_dir;     // unit direction the plume travels, view space
 
-    // Detonation (bgfx backend only; raylib ignores these). When `detonated` is
-    // set the rocket has blown up: the backend draws the explosion at `center`
-    // and no hull/plume, driving the animation off `det_time`.
+    // Detonation. When `detonated` is set the rocket has blown up: the backend
+    // draws the explosion at `center` and no hull/plume, driving the animation
+    // off `det_time`.
     bool  detonated = false;   // this rocket has detonated
     float det_time  = 0.0f;    // seconds elapsed since detonation began
     RVec3 center{};            // rocket position, view space (km) -- explosion anchor
