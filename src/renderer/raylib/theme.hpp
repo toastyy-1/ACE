@@ -8,7 +8,7 @@
 namespace renderer::theme {
 
 inline constexpr RColor kPrimary  { 255, 255, 255, 255 };  // symbology and values
-inline constexpr RColor kSelect   {   0, 230, 255, 255 };  // labels, references, flown path
+inline constexpr RColor kSelect   {   255, 0, 0, 255 };  // labels, references, flown path
 inline constexpr RColor kActive   {  40, 255,  40, 255 };  // active state, launch site
 inline constexpr RColor kRoute    { 255,  60, 255, 255 };  // plan: predicted path, aim point
 inline constexpr RColor kCaution  { 255, 200,   0, 255 };
