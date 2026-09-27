@@ -42,7 +42,7 @@ namespace sim {
         TIME_STEP = config.time_step;
         STEP_DELAY = config.step_delay;
 
-        for (const RocketEntry& rocket : config.rockets) {
+        for (const RocketEntry& rocket : load_rocket_config("config/rocket.yaml")) {
             rocket_list.emplace_back(rocket.name, rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
                                      rocket.props, rocket.track_data, rocket.export_interval);
         }

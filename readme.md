@@ -55,31 +55,44 @@ Camera: `WASD` + `QE` to move, mouse to look, `shift` to boost, `F` to recenter 
 
 ---
 
-## 4. Configuring the environment (`config/sim.yaml`)
+## 4. Configuring the environment (`config/`)
 
-This YAML file defines all elements of the tim that you wish to control. If you decide not to add a field it will resolve to default.
+The sim is set up by two YAML files. If you decide not to add a field it will resolve to default.
 
-### Top level
+- `config/sim.yaml`: sim settings (time step and such)
+- `config/rocket.yaml`: every rocket, its geometry, launch site/target, and stages
+
+### `sim.yaml`
 
 | key | default | meaning |
 | --- | --- | --- |
 | `time_step` | `0.01` | integration step in seconds, and therefore the `fc_update` period |
 | `step_delay` | `0.001` | real life sleep between steps, purely to slow the sim down for viewing |
+
+### `rocket.yaml`
+
+| key | default | meaning |
+| --- | --- | --- |
 | `rockets` | — | list, one entry per vehicle. All of them fly simultaneously and independently using the designated FC |
 
 Note that while there might be multiple vehicles, the FC is the same for all of them.
 
-### Per rocket
+#### Per rocket
 
 | key | default | meaning |
 | --- | --- | --- |
+| `name` | `rocket_<index>` | identifier, also names the exported data file |
+| `track_data` | `false` | write this rocket's flight data to `data/<name>.csv` |
+| `export_interval` | `0.0` | sim seconds between exported rows (`0` = every step) |
 | `origin_lat` / `origin_lon` | `0.0` | launch site, degrees |
 | `target_lat` / `target_lon` | `0.0` | aim point, degrees. given to the FC as `r_target_ecef` |
-| `radius` | props default | tank radius (m) |
-| `drag_coefficient` | props default | `Cd`. `0.0` disables drag |
+| `radius` | `0.0` | tank radius (m) |
+| `nosecone_length` | `0.0` | m |
+| `nosecone_mass` | `0.0` | nosecone/payload mass on top of the last stage (kg) |
+| `nosecone_com_distance` | 2/3 of `nosecone_length` | nosecone CoM back from the nose tip (m) |
 | `stage` | — | list, in flight order: first entry is the booster |
 
-### Per stage
+#### Per stage
 
 Stage geometry is measured **from the leading edge (tip) of that stage, pointing aft**. This means that, for example, length is the top tip of the stage to the back.
 
@@ -87,18 +100,30 @@ Stage geometry is measured **from the leading edge (tip) of that stage, pointing
 | --- | --- | --- |
 | `dry_mass` | kg | stage mass with no fuel |
 | `fuel_mass` | kg | propellant mass before ignition |
-| `isp` | s | vacuum specific impulse |
-| `isp_sea_level` | s | sea level Isp |
 | `length` | m | tip to tail |
 | `com_distance` | m | CoM from the tip with full tanks |
 | `fuel_com_distance` | m | propellant CoM from the tip, full (defaults to `com_distance`) |
 | `fuel_length` | m | propellant length, full (should not be greater than `length`) |
-| `max_thrust` | N | rated thrust (currently constant, thrust curve CID) |
 | `engine_distance` | m | gimbal point from the tip (usually `length`) |
 | `gimbal_range_deg` | deg | max nozzle deflection off the body axis |
+| `thrust_curve` | — | path to the stage's thrust curve csv, relative to `rocket.yaml` (required) |
 | `rcs_max_moment` | N·m | 3 element `[x, y, z]` torque authority. Omit for no RCS (experimental feature, kind of a chud temporary solution) |
 
 The number of stage entries defines the number of stages. Every stage you define is reported to the FC in `fc_vehicle.stages`.
+
+#### Thrust curves
+
+Each stage's `thrust_curve` is a csv of thrust over time since ignition, one `time (s), thrust (N)` pair per row. The first line may be a header, and time must be increasing:
+
+```csv
+time_s,thrust_N
+0.000,0.0
+0.500,903692.0
+60.416,903692.0
+61.416,0.0
+```
+
+The rocket loads each curve into its stage as a `ThrustCurve`, with separate `time` and `thrust` arrays. Csv files under `config/` are tracked by git, everything else ending in `.csv` is ignored.
 
 Adding more vehicles is just another list entry as shown:
 
@@ -109,10 +134,10 @@ rockets:
     target_lat: 53.9
     target_lon: 43.3
     radius: 0.835
-    drag_coefficient: 0.0
     stage:
       - id: 1
         dry_mass: 2292.0
+        thrust_curve: stage1_thrust_curve.csv
         # ...
 
   - origin_lat: 45.0
@@ -120,9 +145,9 @@ rockets:
     target_lat: 50.0
     target_lon: 40.0
     radius: 0.7
-    drag_coefficient: 0.2
     stage:
       - id: 1
+        thrust_curve: other_booster.csv
         # ...
 ```
 

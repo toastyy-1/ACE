@@ -2,10 +2,17 @@
 
 #include "constants.hpp"
 #include "types.hpp"
+#include <string>
 #include <vector>
 
 // number of stages on the rocket
 inline constexpr int ROCKET_NUM_STAGES = 3;
+
+// thrust curve
+struct ThrustCurve {
+    std::vector<double> t;   // time since ignition (s)
+    std::vector<double> F; // thrust (N)
+};
 
 struct Stage {
     double id;
@@ -23,6 +30,8 @@ struct Stage {
     double engine_distance;         // distance of engine from leading edge
     double engine_gimball_range;    // deg
     Vec3 rcs_max_capable_moment;    // n-m torque that RCS system for that stage can apply about axes along CoM (set 0 if no rcs)
+    std::string thrust_curve_file;  // path to the stage's thrust curve csv
+    ThrustCurve thrust_curve;       // thrust curve, thrust vs time
 
     // velcoty of exhaust of the engine
     double exhaust_velocity() const { return isp * g0; }

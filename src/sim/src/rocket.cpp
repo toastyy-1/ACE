@@ -1,4 +1,5 @@
 #include "sim/inc/rocket.hpp"
+#include "sim/inc/config.hpp"
 #include "constants.hpp"
 #include "fc/inc/fc_api.h"
 #include <cmath>
@@ -22,6 +23,11 @@ Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double or
     set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
     props = rocket_props;
     name = rocket_name;
+
+    // load thrust curve
+    for (Stage& s : props.stages) {
+        if (!s.thrust_curve_file.empty()) s.thrust_curve = load_thrust_curve(s.thrust_curve_file);
+    }
 
     if (track_data) {
         std::filesystem::create_directories("data");
