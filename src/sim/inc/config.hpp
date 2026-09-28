@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "sim/inc/properties.hpp"
+#include "sim/inc/rocket.hpp"
 
 struct RocketEntry {
     std::string name;
@@ -13,10 +13,15 @@ struct RocketEntry {
 };
 
 struct SimConfig {
-    std::vector<RocketEntry> rockets;
     double time_step = 0.01; // seconds
     double step_delay = 0.001;
 };
 
 // reads the sims config file
 SimConfig load_sim_config(const std::string& path);
+
+// reads the rocket config file
+std::vector<RocketEntry> load_rocket_config(const std::string& path);
+
+// reads a thrust curv
+ThrustCurve load_thrust_curve(const std::string& path, const double total_initial_prop_mass_for_stage);

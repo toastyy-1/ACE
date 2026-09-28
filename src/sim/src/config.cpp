@@ -1,7 +1,9 @@
 #include "sim/inc/config.hpp"
 #include "fkYAML/node.hpp"
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 
 // @todo add doc
@@ -24,26 +26,49 @@ static T value_or(const fkyaml::node& n, const char* key, T fallback) {
     return fallback;
 }
 
-// @todo add doc
 /**
- * @brief
- * @param path
- * @return
+ * @brief parses a yaml file, printing the error if it can't
+ * @param path yaml file to read
+ * @return the root node, null if the file couldn't be parsed
  */
-SimConfig load_sim_config(const std::string& path) {
-    // parse the yaml file
-    fkyaml::node root;
+static fkyaml::node parse_yaml(const std::string& path) {
     try {
         std::ifstream file(path);
-        root = fkyaml::node::deserialize(file);
+        return fkyaml::node::deserialize(file);
     } catch (const fkyaml::exception& err) {
         std::cerr << "config error: could not parse '" << path << "': " << err.what() << "\n";
     }
+    return fkyaml::node();
+}
+
+/**
+ * @brief reads the sim settings (time step and such), rockets live in their own file
+ * @param path sim yaml file
+ * @return sim settings, missing keys keep their defaults
+ */
+SimConfig load_sim_config(const std::string& path) {
+    fkyaml::node root = parse_yaml(path);
 
     SimConfig cfg;
 
     cfg.time_step = value_or(root, "time_step", cfg.time_step);
     cfg.step_delay = value_or(root, "step_delay", cfg.step_delay);
+
+    return cfg;
+}
+
+/**
+ * @brief reads every rocket entry and its stages
+ * @param path rocket yaml file, stage thrust_curve paths are relative to its folder
+ * @return one entry per rocket
+ */
+std::vector<RocketEntry> load_rocket_config(const std::string& path) {
+    fkyaml::node root = parse_yaml(path);
+
+    std::vector<RocketEntry> rockets;
+
+    // thrust curve csvs are looked up next to the rocket file
+    std::filesystem::path config_dir = std::filesystem::path(path).parent_path();
 
     // one entry per rocket
     if (root.is_mapping() && root.contains("rockets") && root["rockets"].is_sequence()) {
@@ -76,21 +101,27 @@ SimConfig load_sim_config(const std::string& path) {
             if (has_stages) {
                 size_t si = 0;
                 for (const fkyaml::node& st : rn["stage"]) {
-                    Stage s{};
+                    Stage s;
 
                     s.id                    = value_or(st, "id", 0.0);
                     s.m_dry                 = value_or(st, "dry_mass", 0.0);
                     s.m_fuel                = value_or(st, "fuel_mass", 0.0);
                     s.m_fuel_full           = s.m_fuel;
-                    s.isp                   = value_or(st, "isp", 0.0);
-                    s.isp_sea_level         = value_or(st, "isp_sea_level", 0.0);
                     s.tip_to_end_length     = value_or(st, "length", 0.0);
                     s.CoM_dist              = value_or(st, "com_distance", 0.0);
                     s.fuel_CoM_dist         = value_or(st, "fuel_com_distance", s.CoM_dist);
                     s.fuel_length           = value_or(st, "fuel_length", 0.0);
-                    s.max_thrust            = value_or(st, "max_thrust", 0.0);
                     s.engine_distance       = value_or(st, "engine_distance", 0.0);
                     s.engine_gimball_range  = value_or(st, "gimbal_range_deg", 0.0);
+
+                    std::string curve_file = value_or(st, "thrust_curve", std::string());
+                    if (curve_file.empty()) {
+                        std::cerr << "config error: '" << path << "' rocket " << ri << " stage " << si
+                                  << " must set a thrust_curve csv\n";
+                    } else {
+                        s.thrust_curve_file = (config_dir / curve_file).string();
+                        s.thrust_curve = load_thrust_curve(s.thrust_curve_file, s.m_fuel);
+                    }
 
                     if (st.is_mapping() && st.contains("rcs_max_moment")) {
                         const fkyaml::node& rcs = st["rcs_max_moment"];
@@ -111,14 +142,69 @@ SimConfig load_sim_config(const std::string& path) {
                 }
             }
 
-            cfg.rockets.push_back(rocket);
+            rockets.push_back(rocket);
             ri++;
         }
     }
 
-    if (cfg.rockets.empty()) {
+    if (rockets.empty()) {
         std::cerr << "config error: '" << path << "' must define at least one rocket entry\n";
     }
 
-    return cfg;
+    return rockets;
+}
+
+/**
+ * @brief reads a thrust curve csv. every row is `time (s), thrust (N)`, the first line may be a
+ * header and blank lines are skipped
+ * @param path csv file to read
+ * @return the curve's time and thrust samples, empty if the file is missing or malformed
+ */
+ThrustCurve load_thrust_curve(const std::string& path, const double total_initial_prop_mass_for_stage) {
+    std::ifstream file(path);
+    if (!file) {
+        std::cerr << "config error: could not open thrust curve '" << path << "'\n";
+        return {};
+    }
+
+    ThrustCurve tc(total_initial_prop_mass_for_stage);
+    std::string line;
+    int line_num = 0;
+    bool header_allowed = true; // only the first non blank line can be a header
+
+    while (std::getline(file, line)) {
+        line_num++;
+        if (line.find_first_not_of(" \t\r") == std::string::npos) continue;
+
+        // exactly two numbers separated by a comma
+        std::istringstream row(line);
+        double t = 0, thrust = 0;
+        char comma = 0;
+        bool parsed = (row >> t >> comma >> thrust) && comma == ',' && (row >> std::ws).eof();
+
+        bool is_header = !parsed && header_allowed;
+        header_allowed = false;
+        if (is_header) continue;
+
+        if (!parsed) {
+            std::cerr << "config error: '" << path << "' line " << line_num << " must be `time, thrust`\n";
+            return {};
+        }
+        if (t < 0 || thrust < 0) {
+            std::cerr << "config error: '" << path << "' line " << line_num << " time and thrust can't be negative\n";
+            return {};
+        }
+        if (!tc.time().empty() && t <= tc.time().back()) {
+            std::cerr << "config error: '" << path << "' line " << line_num << " time must be increasing\n";
+            return {};
+        }
+
+        tc.add_point(t, thrust);
+    }
+
+    if (tc.time().empty()) {
+        std::cerr << "config error: '" << path << "' has no thrust curve data\n";
+    }
+
+    return tc;
 }
