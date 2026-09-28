@@ -31,7 +31,7 @@ void Rocket::update_flight_controller(double current_time) {
             fs.CoM_dist                = s.CoM_dist;
             fs.fuel_CoM_dist           = s.fuel_CoM_dist;
             fs.fuel_length             = s.fuel_length;
-            fs.max_thrust              = s.thrust_curve.peak();
+            fs.max_thrust              = s.thrust_curve.peak_thrust();
             fs.engine_distance         = s.engine_distance;
             fs.engine_gimbal_range_deg = s.engine_gimball_range;
             fs.rcs_max_moment          = s.rcs_max_capable_moment;

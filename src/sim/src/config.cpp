@@ -101,7 +101,7 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
             if (has_stages) {
                 size_t si = 0;
                 for (const fkyaml::node& st : rn["stage"]) {
-                    Stage s{};
+                    Stage s;
 
                     s.id                    = value_or(st, "id", 0.0);
                     s.m_dry                 = value_or(st, "dry_mass", 0.0);
@@ -120,7 +120,7 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
                                   << " must set a thrust_curve csv\n";
                     } else {
                         s.thrust_curve_file = (config_dir / curve_file).string();
-                        s.thrust_curve = load_thrust_curve(s.thrust_curve_file);
+                        s.thrust_curve = load_thrust_curve(s.thrust_curve_file, s.m_fuel);
                     }
 
                     if (st.is_mapping() && st.contains("rcs_max_moment")) {
@@ -160,14 +160,14 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
  * @param path csv file to read
  * @return the curve's time and thrust samples, empty if the file is missing or malformed
  */
-ThrustCurve load_thrust_curve(const std::string& path) {
+ThrustCurve load_thrust_curve(const std::string& path, const double total_initial_prop_mass_for_stage) {
     std::ifstream file(path);
     if (!file) {
         std::cerr << "config error: could not open thrust curve '" << path << "'\n";
         return {};
     }
 
-    ThrustCurve curve;
+    ThrustCurve tc(total_initial_prop_mass_for_stage);
     std::string line;
     int line_num = 0;
     bool header_allowed = true; // only the first non blank line can be a header
@@ -194,18 +194,17 @@ ThrustCurve load_thrust_curve(const std::string& path) {
             std::cerr << "config error: '" << path << "' line " << line_num << " time and thrust can't be negative\n";
             return {};
         }
-        if (!curve.t.empty() && t <= curve.t.back()) {
+        if (!tc.time().empty() && t <= tc.time().back()) {
             std::cerr << "config error: '" << path << "' line " << line_num << " time must be increasing\n";
             return {};
         }
 
-        curve.t.push_back(t);
-        curve.F.push_back(thrust);
+        tc.add_point(t, thrust);
     }
 
-    if (curve.t.empty()) {
+    if (tc.time().empty()) {
         std::cerr << "config error: '" << path << "' has no thrust curve data\n";
     }
 
-    return curve;
+    return tc;
 }

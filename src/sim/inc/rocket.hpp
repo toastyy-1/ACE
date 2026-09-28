@@ -4,6 +4,7 @@
 #include "sim/inc/ins.hpp"
 #include "sim/inc/data_export.hpp"
 #include "fc/inc/fc_sim_connector.hpp"
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <string>
@@ -43,14 +44,27 @@ struct RocketState {
 inline constexpr int ROCKET_NUM_STAGES = 3;
 
 // thrust curve
-struct ThrustCurve {
+class ThrustCurve {
+    public:
+    ThrustCurve() = default;
+    explicit ThrustCurve(double total_initial_prop_mass) : prop_mass(total_initial_prop_mass) {}
+
+    // appends a sample
+    void add_point(double time, double thrust) { t.push_back(time); F.push_back(thrust); }
+
+    // getters
+    double thrust(double time) const;                              // thrust at a time since ignition (N)
+    double impulse(double t0, double t1) const;                    // total impulse between two times since ignition (N*s)
+    double isp() const;                                            // avg specific impulse over the whole curve (s)
+    double peak_thrust() const { return F.empty() ? 0.0 : *std::max_element(F.begin(), F.end()); };  // highest thrust on the curve (N)
+    double end_time() const { return t.empty() ? 0.0 : t.back(); } // burnout time (s)
+    const std::vector<double>& time() const { return t; }
+    const std::vector<double>& thrust() const { return F; }
+
+    private:
     std::vector<double> t;   // time since ignition (s)
     std::vector<double> F; // thrust (N)
-
-    double thrust_at(double time) const;           // thrust at a time since ignition (N)
-    double impulse(double t0, double t1) const;    // impulse delivered between two times since ignition (N-s)
-    double peak() const;                           // highest thrust on the curve (N)
-    double end_time() const { return t.empty() ? 0.0 : t.back(); } // burnout time (s)
+    double prop_mass = 0;    // propellant the curve burns (kg)
 };
 
 struct Stage {

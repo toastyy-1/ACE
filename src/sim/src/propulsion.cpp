@@ -4,6 +4,7 @@
 
 #include "sim/inc/rocket.hpp"
 #include <algorithm>
+#include <vector>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // thrust curve                                                                              //
@@ -13,32 +14,58 @@
  * @param time time since ignition (s)
  * @return thrust (N), 0 outside the curv
  */
-double ThrustCurve::thrust_at(double time) const {
+double ThrustCurve::thrust(double time) const {
     if (t.empty() || time < t.front() || time > t.back()) return 0.0;
 
-    // first sample after time
-    size_t i = std::upper_bound(t.begin(), t.end(), time) - t.begin();
-    if (i == t.size()) return F.back();
+    size_t t_size = t.size();
 
-    double frac = (time - t[i - 1]) / (t[i] - t[i - 1]);
-    return F[i - 1] + frac * (F[i] - F[i - 1]);
+    // first sample after time
+    size_t i = 0;
+    while (i < t_size && t[i] <= time) ++i;
+
+    if (i == t_size) return F.back();
+
+    return F[i - 1] + (time - t[i - 1]) / (t[i] - t[i - 1]) * (F[i] - F[i - 1]);
 }
 
 /**
- * impulse the curve delivers between two times since ignition
+ * integrates the interpolated thrust between two times to get impulse
  * @param t0 start time since ignition (s)
  * @param t1 end time since ignition (s)
- * @return impulse (N-s)
+ * @return impulse at a time t1 assuming t0 is burn start time
  */
 double ThrustCurve::impulse(double t0, double t1) const {
+    if (t.empty()) return 0.0;
 
+    // only eval within bounds of the curve
+    t0 = std::max(t0, t.front());
+    t1 = std::min(t1, t.back());
+    if (t1 <= t0) return 0.0;
+
+    double I_total = 0.0;
+    double prev_t = t0;
+    double prev_F = thrust(t0);
+
+    // integrate impulse using trapezoidal integration
+    for (size_t i = 0; i < t.size(); i++) {
+        if (t[i] <= t0) continue;
+        if (t[i] >= t1) break;
+        I_total += 0.5 * (prev_F + F[i]) * (t[i] - prev_t);
+        prev_t = t[i];
+        prev_F = F[i];
+    }
+
+    I_total += 0.5 * (prev_F + thrust(t1)) * (t1 - prev_t);
+    return I_total;
 }
 
 /**
- * @return highest thrust on the curve (N)
+ * average specific impulse over the whole burn
+ * @return Isp (s), 0 if the propellant mass isn't set
  */
-double ThrustCurve::peak() const {
-
+double ThrustCurve::isp() const {
+    if (prop_mass <= 0) return 0.0;
+    return impulse(0.0, end_time()) / (prop_mass * g0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -69,6 +96,9 @@ static Vec3 propulsion_torque(const Vec3& thrust_body, const Stage& stage, doubl
     return r_engine.cross(thrust_body);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// main                                                                                      //
+///////////////////////////////////////////////////////////////////////////////////////////////
 /**
  * thrust acceleration and engine torque from the active stage's thrust curve
  * @param r position in ECI
@@ -84,7 +114,7 @@ KinematicModifier Rocket::calc_propulsion_kinematics(const Vec3& r, const Vec3& 
     const Stage& stage = props.stages[active_idx];
 
     // find where we are in the thrust curve so we know how much thrust to apply
-    double thrust_force = throttle * stage.thrust_curve.thrust_at(t_burn);
+    double thrust_force = throttle * stage.thrust_curve.thrust(t_burn);
 
     // calculate the accel vector the engine applies to the body
     Vec3 thrust_body = prop_thrust_vector(thrust_force, q_engine);
