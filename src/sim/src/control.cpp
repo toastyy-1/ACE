@@ -12,7 +12,7 @@
  * @param current_time current simulation time at a given iteration
  */
 void Rocket::update_flight_controller(double current_time) {
-    if (pending_cutoff) { active_stage().thrust = 0.0; pending_cutoff = false; } // process engine sub step cutoff
+    if (pending_cutoff) { throttle = 0.0; pending_cutoff = false; } // process engine sub step cutoff
 
     fc_sim_connector::begin(this);
 
@@ -25,13 +25,13 @@ void Rocket::update_flight_controller(double current_time) {
             fs.id                      = static_cast<int>(s.id);
             fs.m_dry                   = s.m_dry;
             fs.m_fuel                  = s.m_fuel_full;
-            fs.isp                     = s.isp;
-            fs.isp_sea_level           = s.isp_sea_level;
+            fs.isp                     = s.exhaust_velocity() / g0;
+            fs.isp_sea_level           = 0.0;
             fs.tip_to_end_length       = s.tip_to_end_length;
             fs.CoM_dist                = s.CoM_dist;
             fs.fuel_CoM_dist           = s.fuel_CoM_dist;
             fs.fuel_length             = s.fuel_length;
-            fs.max_thrust              = s.max_thrust;
+            fs.max_thrust              = s.thrust_curve.peak();
             fs.engine_distance         = s.engine_distance;
             fs.engine_gimbal_range_deg = s.engine_gimball_range;
             fs.rcs_max_moment          = s.rcs_max_capable_moment;
@@ -97,7 +97,6 @@ void Rocket::apply_fc_commands() {
 
     if (fc_cmd.rcs_on) {
         rcs_on();
-        rcs_apply_const_moment(fc_cmd.rcs_moment);
     }
     else {
         rcs_off();
@@ -112,6 +111,9 @@ bool Rocket::advance_stage() {
     if (active_idx + 1 < num_stages()) {
         active_idx++;
         engine_locked = false; // fresh stage
+        pending_cutoff = false;
+        throttle = 0.0;
+        burn_time = 0.0;
         return true;
     }
     return false;
@@ -122,8 +124,10 @@ bool Rocket::advance_stage() {
  */
 void Rocket::light_engine() {
     if (engine_locked) return; // motor was cut off and cannot be relit on this stage
+    if (throttle > 0) return; // alr bruning
     if (active_stage().m_fuel > 0) {
-        active_stage().thrust = active_stage().max_thrust;
+        throttle = 1.0;
+        burn_time = 0.0;
     }
 }
 
@@ -131,7 +135,7 @@ void Rocket::light_engine() {
  * @brief permanently terminates thrust on the active stage, kills motor real dead
  */
 void Rocket::cutoff_engine() {
-    active_stage().thrust = 0;
+    throttle = 0;
     engine_locked = true;
 }
 
@@ -145,23 +149,27 @@ void Rocket::cutoff_engine() {
 void Rocket::command_final_burn_fraction(double fraction) {
     if (engine_locked) return;
     fraction = std::clamp(fraction, 0.0, 1.0);
-    active_stage().thrust = fraction * active_stage().max_thrust;
+    throttle *= fraction;  // scales the thrust curve
     engine_locked = true;  // no relight
     pending_cutoff = true; // thrust zeroed at the start of the next step
 }
 
 /**
- * tells the RCS system that it should apply a moment to the center of mass of the rocket body according to the input
- * if the applied moment is greater than possible by the RCS system it will just max out the moments
- * @param m moment to apply to the rocket body about the CoM
+ * the moment the RCS system applies to the center of mass of the rocket body, as commanded by the FC
+ * if the commanded moment is greater than possible by the RCS system it will just max out the moments
+ * @return rcs moment about the CoM in body frame
  */
-void Rocket::rcs_apply_const_moment(Vec3 m) {
-    Vec3 applied_moment = m;
+Vec3 Rocket::calc_rcs_torque() const {
+    if (!rcs_active) return {0, 0, 0};
+
     // cap moments
-    applied_moment.x = std::clamp(m.x, -active_stage().rcs_max_capable_moment.x, active_stage().rcs_max_capable_moment.x);
-    applied_moment.y = std::clamp(m.y, -active_stage().rcs_max_capable_moment.y, active_stage().rcs_max_capable_moment.y);
-    applied_moment.z = std::clamp(m.z, -active_stage().rcs_max_capable_moment.z, active_stage().rcs_max_capable_moment.z);
-    applied_rcs_moment = applied_moment; // apply moment to apply_rcs_moment
+    const Vec3& m = fc_cmd.rcs_moment;
+    const Vec3& max = active_stage().rcs_max_capable_moment;
+    return {
+        std::clamp(m.x, -max.x, max.x),
+        std::clamp(m.y, -max.y, max.y),
+        std::clamp(m.z, -max.z, max.z),
+    };
 }
 
 /**

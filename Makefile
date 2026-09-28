@@ -16,7 +16,7 @@ FC_CXX_SRCS := $(filter-out %.c,$(FC_SRC))
 FC_C_OBJS   := $(addprefix build/fc/,$(notdir $(FC_C_SRCS:.c=.o)))
 
 COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp src/renderer/terrain_lod.cpp \
-               src/sim/src/sim.cpp src/sim/src/rocket.cpp src/sim/src/control.cpp src/sim/src/drag.cpp \
+               src/sim/src/sim.cpp src/sim/src/rocket.cpp src/sim/src/control.cpp src/sim/src/drag.cpp src/sim/src/propulsion.cpp \
                src/sim/src/config.cpp src/sim/src/data_export.cpp src/fc/src/fc_api.cpp \
                $(FC_CXX_SRCS)
 

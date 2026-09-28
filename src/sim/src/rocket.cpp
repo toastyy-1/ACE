@@ -1,5 +1,4 @@
 #include "sim/inc/rocket.hpp"
-#include "sim/inc/config.hpp"
 #include "constants.hpp"
 #include "fc/inc/fc_api.h"
 #include <cmath>
@@ -23,11 +22,6 @@ Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double or
     set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
     props = rocket_props;
     name = rocket_name;
-
-    // load thrust curve
-    for (Stage& s : props.stages) {
-        if (!s.thrust_curve_file.empty()) s.thrust_curve = load_thrust_curve(s.thrust_curve_file);
-    }
 
     if (track_data) {
         std::filesystem::create_directories("data");
@@ -158,34 +152,6 @@ static Vec3 nose_from_quat(const Quat& q) {
  */
 Vec3 Rocket::nose_direction_eci(const Quat& q) const {
     return nose_from_quat(q);
-}
-
-/**
- * gimbaled thrust vector in the body frame
- * @param thrust_scale isp change as pressure changes
- * @return thrust force vector in the body frame, pointing along the nozzle axis after gimbal and scaled by thrust_scale
- */
-Vec3 Rocket::engine_thrust_body(double thrust_scale) const {
-    Vec3 nose_body = {0, 0, 1};
-    return rotate_by_quat(q_engine, nose_body) * (active_stage().thrust * thrust_scale);
-}
-
-/**
- * net torque about the combined CopM in body frame
- * @param thrust_scale isp change as pressure changes
- * @return the net torque about the body's center of mass as applied by the nozzle's thrust
- */
-Vec3 Rocket::net_body_torque(double thrust_scale) const {
-    Vec3 net_torque = {0, 0, 0};
-
-    // lever arm from the combined CoM to the engine along the body axis
-    double s_engine = active_stage().tip_to_end_length - active_stage().engine_distance;
-    Vec3 r_engine = {0, 0, s_engine - z_cm};
-
-    net_torque += r_engine.cross(engine_thrust_body(thrust_scale));
-    if (rcs_active) net_torque += applied_rcs_moment;
-
-    return net_torque;
 }
 
 /**
@@ -445,18 +411,25 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * translational acceleration in the ECI frame
+ * returns the current kinematic state
  * @param m_i mass
  * @param r_i position in ECI
  * @param v_i velocity in ECI
  * @param q_i body orientation
  * @param w_i angular velocity, body frame
- * @param thrust_body thrust force in the body frame
  * @param props rocket geometry
- * @return acceleration in ECI
+ * @param t_burn time since the active stage ignition
+ * @return acceleration in ECI and torque about the CoM in body frame
  */
-Vec3 Rocket::translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const Vec3& thrust_body, const RocketProps& props) {
-    return calc_gravity_accel(r_i) + calc_drag_accel(r_i, v_i, q_i, w_i, m_i, props) + rotate_by_quat(q_i, thrust_body) / m_i;
+KinematicModifier Rocket::kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn) {
+    KinematicModifier drag = calc_drag_kinematics(r_i, v_i, q_i, w_i, m_i, props);
+    KinematicModifier prop = calc_propulsion_kinematics(r_i, v_i, q_i, w_i, m_i, props, t_burn);
+    Vec3 grav = calc_gravity_accel(r_i);
+
+    KinematicModifier state;
+    state.accel = drag.accel + prop.accel + grav;
+    state.torque = drag.torque + prop.torque + calc_rcs_torque();
+    return state;
 }
 
 /**
@@ -472,33 +445,16 @@ void Rocket::update_dynamics(double current_time) {
     // time step for the simulation
     double dt = TIME_STEP;
 
-    // propellant drain
     Stage& s = active_stage();
-    double mdot = s.mass_flow_rate();
-    double burn_frac = 1.0; // fraction of the step the remaining propellant lasts
-    if (mdot * dt > s.m_fuel) {
-        burn_frac = s.m_fuel / (mdot * dt);
-        mdot = s.m_fuel / dt;
-    }
 
-    // adjust thrust for isp change
-    double air_density, air_pressure, speed_of_sound, mu;
-    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure, speed_of_sound, mu);
-    double thrust_scale;
-    if (s.isp > 0) {
-        thrust_scale = s.isp_at(air_pressure) / s.isp;
-    } else {
-        thrust_scale = 1.0;
-    }
-    thrust_scale *= burn_frac;
-
-    // quantities the FC commands (aero torque is added per stage since it depends on attitude)
-    Vec3 thrust_body = engine_thrust_body(thrust_scale);
-    Vec3 net_torque = net_body_torque(thrust_scale);
+    // propellant burned over the first half and all of the step
+    double t_burn = burn_time;
+    double fuel_mid = fuel_burned(t_burn, t_burn + dt / 2);
+    double fuel_end = fuel_burned(t_burn, t_burn + dt);
 
     // mass at the start, middle, and end of the step
-    double m_mid = m - mdot * (dt / 2);
-    double m_end = m - mdot * dt;
+    double m_mid = m - fuel_mid;
+    double m_end = m - fuel_end;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // RK4 integration                                                                           //
@@ -507,9 +463,10 @@ void Rocket::update_dynamics(double current_time) {
     ////////////////////////////////////
     // k1 terms                       //
     ////////////////////////////////////
+    KinematicModifier k1 = kinematic_state(m, r, v, q_rocket, w, props, t_burn);
     Vec3 k1_r = v;
-    Vec3 k1_v = translational_accel(m, r, v, q_rocket, w, thrust_body, props);
-    Vec3 k1_w = ang_accel(w, I, net_torque + aero_torque);
+    Vec3 k1_v = k1.accel;
+    Vec3 k1_w = ang_accel(w, I, k1.torque);
     Quat k1_q = quat_deriv(q_rocket, w);
 
     ////////////////////////////////////
@@ -519,9 +476,10 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 v2 = v + k1_v * (dt / 2);
     Vec3 w2 = w + k1_w * (dt / 2);
     Quat q2 = q_rocket + k1_q * (dt / 2);
+    KinematicModifier k2 = kinematic_state(m_mid, r2, v2, q2, w2, props, t_burn + dt / 2);
     Vec3 k2_r = v2;
-    Vec3 k2_v = translational_accel(m_mid, r2, v2, q2, w2, thrust_body, props);
-    Vec3 k2_w = ang_accel(w2, I, net_torque + aero_torque);
+    Vec3 k2_v = k2.accel;
+    Vec3 k2_w = ang_accel(w2, I, k2.torque);
     Quat k2_q = quat_deriv(q2, w2);
 
     ////////////////////////////////////
@@ -531,9 +489,10 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 v3 = v + k2_v * (dt / 2);
     Vec3 w3 = w + k2_w * (dt / 2);
     Quat q3 = q_rocket + k2_q * (dt / 2);
+    KinematicModifier k3 = kinematic_state(m_mid, r3, v3, q3, w3, props, t_burn + dt / 2);
     Vec3 k3_r = v3;
-    Vec3 k3_v = translational_accel(m_mid, r3, v3, q3, w3, thrust_body, props);
-    Vec3 k3_w = ang_accel(w3, I, net_torque + aero_torque);
+    Vec3 k3_v = k3.accel;
+    Vec3 k3_w = ang_accel(w3, I, k3.torque);
     Quat k3_q = quat_deriv(q3, w3);
 
     ////////////////////////////////////
@@ -543,9 +502,10 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 v4 = v + k3_v * dt;
     Vec3 w4 = w + k3_w * dt;
     Quat q4 = q_rocket + k3_q * dt;
+    KinematicModifier k4 = kinematic_state(m_end, r4, v4, q4, w4, props, t_burn + dt);
     Vec3 k4_r = v4;
-    Vec3 k4_v = translational_accel(m_end, r4, v4, q4, w4, thrust_body, props);
-    Vec3 k4_w = ang_accel(w4, I, net_torque + aero_torque);
+    Vec3 k4_v = k4.accel;
+    Vec3 k4_w = ang_accel(w4, I, k4.torque);
     Quat k4_q = quat_deriv(q4, w4);
 
     ////////////////////////////////////
@@ -570,8 +530,14 @@ void Rocket::update_dynamics(double current_time) {
     q_rocket.z /= qnorm;
 
     // burn off fuel
-    s.m_fuel -= mdot * dt;
-    if (s.m_fuel <= 0) { s.m_fuel = 0; s.thrust = 0; }
+    if (throttle > 0) {
+        s.m_fuel = std::max(0.0, s.m_fuel - fuel_end);
+        burn_time += dt;
+        if (burn_time >= s.thrust_curve.end_time() || s.m_fuel <= 0) {
+            throttle = 0;
+            engine_locked = true;
+        }
+    }
 
     // final time at new position
     double t_end = current_time + dt;
@@ -584,10 +550,10 @@ void Rocket::update_dynamics(double current_time) {
     bool on_ground = is_rocket_on_ground(altitude);
     altitude = r.mag() - surface_r; // the ground contact may have moved the rocket
 
-    // gravity, thrust, and drag at new position
+    // gravity, drag, and thrust at new position
     Vec3 g_end = calc_gravity_accel(r);
-    thrust_accel = rotate_by_quat(q_rocket, thrust_body) / m_end;
-    Vec3 drag_end = calc_drag_accel(r, v, q_rocket, w, m_end, props);
+    KinematicModifier drag_end = calc_drag_kinematics(r, v, q_rocket, w, m_end, props);
+    KinematicModifier prop_end = calc_propulsion_kinematics(r, v, q_rocket, w, m_end, props, burn_time);
 
     // update acceleration of the body as consistent with RK4
     if (on_ground) {
@@ -596,7 +562,7 @@ void Rocket::update_dynamics(double current_time) {
     }
     else {
         // calculate RK4 total acceleration vector
-        a = g_end + thrust_accel + drag_end;
+        a = g_end + drag_end.accel + prop_end.accel;
     }
 
     // accelerometer measures everything except gravity, in the body frame
@@ -612,8 +578,8 @@ void Rocket::update_dynamics(double current_time) {
         row.q            = q_rocket;
         row.w            = w;
         row.m            = m_end;
-        row.m_fuel       = m_fuel_current - mdot * dt;
-        row.thrust       = thrust_body.mag();
+        row.m_fuel       = m_fuel_current - fuel_end;
+        row.thrust       = thrust_accel.mag() * m_end;
         row.g            = grav_accel;
         row.drag         = drag_accel;
         row.thrust_a     = thrust_accel;

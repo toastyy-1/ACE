@@ -120,6 +120,7 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
                                   << " must set a thrust_curve csv\n";
                     } else {
                         s.thrust_curve_file = (config_dir / curve_file).string();
+                        s.thrust_curve = load_thrust_curve(s.thrust_curve_file);
                     }
 
                     if (st.is_mapping() && st.contains("rcs_max_moment")) {
@@ -193,16 +194,16 @@ ThrustCurve load_thrust_curve(const std::string& path) {
             std::cerr << "config error: '" << path << "' line " << line_num << " time and thrust can't be negative\n";
             return {};
         }
-        if (!curve.time.empty() && t <= curve.time.back()) {
+        if (!curve.t.empty() && t <= curve.t.back()) {
             std::cerr << "config error: '" << path << "' line " << line_num << " time must be increasing\n";
             return {};
         }
 
-        curve.time.push_back(t);
-        curve.thrust.push_back(thrust);
+        curve.t.push_back(t);
+        curve.F.push_back(thrust);
     }
 
-    if (curve.time.empty()) {
+    if (curve.t.empty()) {
         std::cerr << "config error: '" << path << "' has no thrust curve data\n";
     }
 

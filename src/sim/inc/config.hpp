@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "sim/inc/properties.hpp"
+#include "sim/inc/rocket.hpp"
 
 struct RocketEntry {
     std::string name;

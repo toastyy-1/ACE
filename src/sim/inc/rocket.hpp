@@ -1,7 +1,6 @@
 #pragma once
 #include "types.hpp"
 #include "constants.hpp"
-#include "sim/inc/properties.hpp"
 #include "sim/inc/ins.hpp"
 #include "sim/inc/data_export.hpp"
 #include "fc/inc/fc_sim_connector.hpp"
@@ -15,6 +14,13 @@ struct RocketStartState {
     Vec3 origin_r_eci;
     Quat origin_q_eci; // origin attitude
     Vec3 target_r_ecef;
+};
+
+// holds both an delta acceleration and delta torque vector so a single funciton can return
+// acts on both accel and torque at the same time, to save computation
+struct KinematicModifier {
+    Vec3 accel;
+    Vec3 torque;
 };
 
 // snapshot of rocket state at any given moment
@@ -32,6 +38,68 @@ struct RocketState {
     Quat q_engine{1, 0, 0, 0};
     RocketStartState init{};
 };
+
+// number of stages on the rocket
+inline constexpr int ROCKET_NUM_STAGES = 3;
+
+// thrust curve
+struct ThrustCurve {
+    std::vector<double> t;   // time since ignition (s)
+    std::vector<double> F; // thrust (N)
+
+    double thrust_at(double time) const;           // thrust at a time since ignition (N)
+    double impulse(double t0, double t1) const;    // impulse delivered between two times since ignition (N-s)
+    double peak() const;                           // highest thrust on the curve (N)
+    double end_time() const { return t.empty() ? 0.0 : t.back(); } // burnout time (s)
+};
+
+struct Stage {
+    double id;
+    double m_dry;                   // dry mass
+    double m_fuel;                  // fuel mass
+    double m_fuel_full;             // fuel mass at ignition
+    double tip_to_end_length;       // m
+    double CoM_dist;                // dist of center of mass from front edge of the stage (full tank)
+    double fuel_CoM_dist;           // dist of the full propellant column CoM from the tip
+    double fuel_length;             // length of the full propellant column
+    double engine_distance;         // distance of engine from leading edge
+    double engine_gimball_range;    // deg
+    Vec3 rcs_max_capable_moment;    // n-m torque that RCS system for that stage can apply about axes along CoM (set 0 if no rcs)
+    std::string thrust_curve_file;  // path to the stage's thrust curve csv
+    ThrustCurve thrust_curve;       // thrust curve, thrust vs time
+
+    // effective exhaust velocity
+    double exhaust_velocity() const { return m_fuel_full > 0 ? thrust_curve.impulse(0.0, thrust_curve.end_time()) / m_fuel_full : 0.0; }
+
+    // fraction of the propellant load still in the tank
+    double fuel_fill() const { return m_fuel_full > 0 ? m_fuel / m_fuel_full : 0.0; }
+
+    // propellant CoM from the tip
+    double fuel_CoM() const { return fuel_CoM_dist + 0.5 * fuel_length * (1.0 - fuel_fill()); }
+
+    // dry structure CoM from the tip
+    double dry_CoM() const {
+        if (m_dry > 0) {
+            return ((m_dry + m_fuel_full) * CoM_dist - m_fuel_full * fuel_CoM_dist) / m_dry;
+        } else {
+            return CoM_dist;
+        }
+    }
+};
+
+// config and geometry of rocket whao
+struct RocketProps {
+    double radius = 0; // hull radius for the solid-cylinder inertia model (m)
+    double nosecone_length = 0;
+    double nosecone_mass = 0; // mass of the nosecone (kg)
+    double nosecone_com_distance = 0; // nosecone CoM measured back from the nose tip (m)
+    std::vector<Stage> stages;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MAIN ROCKET CLASS                                                                                                     //
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -81,7 +149,6 @@ class Rocket {
     void set_engine_orientation(Quat orientation);
     void rcs_on() { rcs_active = true; } // enable or disable rcs orientation correction
     void rcs_off() { rcs_active = false; }
-    void rcs_apply_const_moment(Vec3 moment); // applies moment until changed
     void activate_detonation() { detonated = true; }
 
     // rocket owns the flight controller state
@@ -132,6 +199,9 @@ class Rocket {
     int active_idx = 0;          // index of the currently active stage
     bool engine_locked = false;  // once cut off, the active stage's motor cannot be relit until staged away
     bool pending_cutoff = false; // a sub-step burn is finishing; thrust is zeroed at the start of the next step
+    double throttle = 0;         // fraction of the thrust curve the active stage gives
+    double burn_time = 0;        // time since the active stage ignition (s)
+    bool rcs_active = false;     // if active, RCS will start to apply a correcting moment if commanded by FC
 
     // mass properties
     double m_current = 0;        // current total mass (kg)
@@ -139,11 +209,7 @@ class Rocket {
     Vec3 I_body = {0, 0, 0};     // moments of inertia about the combined CoM, body frame
     double z_cm = 0;             // combined CoM along body +z, from the active stage's aft edge (m)
     double z_cp = 0;             // center of pressure along body +z, from the active stage's aft edge (m)
-    Vec3 aero_torque = {0, 0, 0}; // aerodynamic moment about the combined CoM, body frame (N-m)
 
-    // rcs system
-    bool rcs_active = false;
-    Vec3 applied_rcs_moment = {0, 0, 0}; // the moment that is applied to the body in addition to other forces due to RCS
 
     // kinematic state
     Vec3 r = {0, 0, 0};             // position (m)
@@ -179,14 +245,15 @@ class Rocket {
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
     
     // kinematic helpers
-    Vec3 engine_thrust_body(double thrust_scale) const;
-    Vec3 net_body_torque(double thrust_scale) const; // engine + rcs torque about the combined CoM, body frame (constant across a step)
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 
-    // applies translational acceleration components
-    Vec3 translational_accel(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const Vec3& thrust_body, const RocketProps& props); // gravity + drag + thrust, ECI
-        Vec3 calc_drag_accel(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props); // also sets aero_torque
+    // every acceleration (ECI) and every torque about the CoM (body) acting on the rocket
+    KinematicModifier kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn); // gravity + drag + thrust + rcs
+        KinematicModifier calc_drag_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props);
         Vec3 calc_gravity_accel(const Vec3& r);
+        KinematicModifier calc_propulsion_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props, double t_burn);
+        Vec3 calc_rcs_torque() const;
+    double fuel_burned(double t0, double t1) const;
 
 
     // coordinate system conversion helpers
