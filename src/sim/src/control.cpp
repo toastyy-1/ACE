@@ -109,7 +109,14 @@ void Rocket::apply_fc_commands() {
  */
 bool Rocket::advance_stage() {
     if (active_idx + 1 < num_stages()) {
+        update_mass();
+        double z_cm_old = z_cm - active_stage().tip_to_end_length; // measured from the next stage's aft edge
         active_idx++;
+        update_mass();
+        Vec3 shift_body = {0, 0, z_cm - z_cm_old};
+        r += rotate_by_quat(q_rocket, shift_body);
+        v += rotate_by_quat(q_rocket, w.cross(shift_body));
+
         engine_locked = false; // fresh stage
         pending_cutoff = false;
         throttle = 0.0;
@@ -184,6 +191,13 @@ void Rocket::set_engine_orientation(Quat orientation) {
     orientation.x /= norm;
     orientation.y /= norm;
     orientation.z /= norm;
+
+    if (orientation.w < 0) {
+        orientation.w = -orientation.w;
+        orientation.x = -orientation.x;
+        orientation.y = -orientation.y;
+        orientation.z = -orientation.z;
+    }
 
     double angle = 2.0 * std::acos(std::max(-1.0, std::min(1.0, orientation.w)));
     double max_angle = active_stage().engine_gimball_range * M_PI / 180.0;
