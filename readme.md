@@ -50,6 +50,16 @@ make run-bgfx
 
 `make bgfx-deps` only has to be run once on project config.
 
+**headless:**
+
+Runs the sim with no window. Would be useful for monte-carlo.
+
+```sh
+make headless
+OR
+make run-headless
+```
+
 Camera: `WASD` + `QE` to move, mouse to look, `shift` to boost, `F` to recenter on the vehicle,
 `TAB` to cycle tracked rocket, `1`-`9` toggle HUD overlays.
 
@@ -68,6 +78,7 @@ The sim is set up by two YAML files. If you decide not to add a field it will re
 | --- | --- | --- |
 | `time_step` | `0.01` | integration step in seconds, and therefore the `fc_update` period |
 | `step_delay` | `0.001` | real life sleep between steps, purely to slow the sim down for viewing |
+| `max_time` | `0` | sim seconds to run before the sim stops (`0` = run forever) |
 
 ### `rocket.yaml`
 

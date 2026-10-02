@@ -1,4 +1,5 @@
 # sim settings, the rockets themselves are configured in rocket.yaml
 
 time_step: 0.01   # seconds
-step_delay: 0.001  # the time in between steps the sim stops to take a break (for visualization purposes)
+step_delay: 0.0  # the time in between steps the sim stops to take a break (for visualization purposes)
+max_time: 100000       # simulation lifetime, seconds (0 = run forever)

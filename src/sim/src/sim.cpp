@@ -25,8 +25,9 @@ namespace sim {
     /**
      * @brief runs the simulation. everything. literally the entire simulation is run in this one function! it drives the time step
      * @param renderer_ready true if the renderer is ready and loaded and can let the sim start!
+     * @param on_step called after every step (headless output)
      */
-    void Sim::Run(std::function<bool()> renderer_ready) {
+    void Sim::Run(std::function<bool()> renderer_ready, std::function<void(double, const std::vector<Rocket>&)> on_step) {
         // wait for the renderer to load terrain before placing rockets
         while (running.load() && renderer_ready && !renderer_ready()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -54,7 +55,8 @@ namespace sim {
         using wall_clock = std::chrono::steady_clock;
         wall_clock::time_point next_publish = wall_clock::now();
 
-        while (running.load()) {
+        // stop once max_time is reached
+        while (running.load() && (config.max_time <= 0 || t < config.max_time - 1e-9)) {
 
             ///////////////////////////////////////////////////////////////////////////////////////////////
             // sim                                                                                       //
@@ -86,6 +88,8 @@ namespace sim {
 
             // increment time step
             t += TIME_STEP;
+
+            if (on_step) on_step(t, rocket_list);
 
             // make snapshot for other threads of sim states
             if (wall_clock::now() >= next_publish) {

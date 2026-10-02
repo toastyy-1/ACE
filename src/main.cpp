@@ -1,10 +1,29 @@
+#include "sim/inc/sim.hpp"
+
+#ifdef HEADLESS // make headless
+
+/**
+ * @brief called after every sim step
+ * @param t sim time (s)
+ * @param rockets every rocket in the sim
+ */
+static void headless_output(double t, const std::vector<Rocket>& rockets) {
+}
+
+int main() {
+    sim::Sim s;
+    s.Run({}, headless_output);
+    return 0;
+}
+
+#else
+
 #include "renderer/renderer.hpp"
 #ifdef USE_BGFX
 #include "renderer/bgfx/bgfx_backend.hpp"
 #else
 #include "renderer/raylib/raylib_backend.hpp"
 #endif
-#include "sim/inc/sim.hpp"
 #include <thread>
 
 int main() {
@@ -24,3 +43,5 @@ int main() {
     sim_thread.join();
     return 0;
 }
+
+#endif

@@ -15,10 +15,12 @@ FC_C_SRCS   := $(filter %.c,$(FC_SRC))
 FC_CXX_SRCS := $(filter-out %.c,$(FC_SRC))
 FC_C_OBJS   := $(addprefix build/fc/,$(notdir $(FC_C_SRCS:.c=.o)))
 
-COMMON_SRCS := src/main.cpp src/renderer/renderer.cpp src/renderer/geometry.cpp src/renderer/terrain_lod.cpp \
+SIM_SRCS    := src/main.cpp \
                src/sim/src/sim.cpp src/sim/src/rocket.cpp src/sim/src/control.cpp src/sim/src/drag.cpp src/sim/src/propulsion.cpp \
                src/sim/src/config.cpp src/sim/src/data_export.cpp src/fc/src/fc_api.cpp \
                $(FC_CXX_SRCS)
+
+COMMON_SRCS := $(SIM_SRCS) src/renderer/renderer.cpp src/renderer/geometry.cpp src/renderer/terrain_lod.cpp
 
 # Every header under src/. The programs are built in one step from their .cpp
 # files, so without these as prerequisites a header-only edit (theme colours,
@@ -59,10 +61,16 @@ BGFX_LIBS   := $(BGFX_DIR)/cmake/bgfx/libbgfx.a \
                $(BGFX_DIR)/cmake/bimg/libbimg.a \
                $(BGFX_DIR)/cmake/bx/libbx.a
 
+# --- headless (`make headless`): no renderer, the ground is the same plain sphere as the raylib build ---
+HEADLESS_SRCS   := src/renderer/raylib/earth_surface.cpp
+HEADLESS_DEFS   := -DHEADLESS
+HEADLESS_TARGET := program-headless
+
 ifeq ($(OS),Windows_NT)
     LDLIBS       := -lraylib -lopengl32 -lgdi32 -lwinmm -latomic
     TARGET       := program.exe
     BGFX_TARGET  := program-bgfx.exe
+    HEADLESS_TARGET := program-headless.exe
     BGFX_SYSLIBS := -lglfw3 -lopengl32 -lgdi32 -luser32 -lshell32 -lkernel32 -lwinmm -latomic
     SHADERC      := $(BGFX_DIR)/cmake/bgfx/shaderc.exe
     CMAKE_GEN    := MinGW Makefiles
@@ -109,6 +117,17 @@ $(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) $(HEADERS) shaders-bgfx
 run-bgfx: bgfx
 	./$(BGFX_TARGET)
 
+# ---------------------------------------------------------------------------
+# headless
+# ---------------------------------------------------------------------------
+headless: $(HEADLESS_TARGET)
+
+$(HEADLESS_TARGET): $(SIM_SRCS) $(HEADLESS_SRCS) $(FC_C_OBJS) $(HEADERS)
+	$(CXX) $(CXXFLAGS) $(RAYLIB_ARCH) $(HEADLESS_DEFS) $(SIM_SRCS) $(HEADLESS_SRCS) $(FC_C_OBJS) -o $@
+
+run-headless: headless
+	./$(HEADLESS_TARGET)
+
 shaders-bgfx: $(SHADER_BINS)
 
 $(SHADER_DIR)/vs_%.bin: $(SHADER_DIR)/vs_%.sc $(SHADER_DIR)/varying.def.sc
@@ -129,7 +148,7 @@ bgfx-deps: $(BGFX_TEXTURES_READY)
 	cmake --build $(BGFX_DIR) -j 12
 
 clean:
-	$(RM) $(TARGET) $(BGFX_TARGET)
+	$(RM) $(TARGET) $(BGFX_TARGET) $(HEADLESS_TARGET)
 	$(RM) build/fc/*.o
 
-.PHONY: run run-bgfx bgfx shaders-bgfx bgfx-deps clean
+.PHONY: run run-bgfx bgfx headless run-headless shaders-bgfx bgfx-deps clean

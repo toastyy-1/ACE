@@ -14,7 +14,8 @@ struct RocketEntry {
 
 struct SimConfig {
     double time_step = 0.01; // seconds
-    double step_delay = 0.001;
+    double step_delay = 0.001; // seconds
+    double max_time = 0.0; // seconds
 };
 
 // reads the sims config file

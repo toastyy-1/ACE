@@ -13,7 +13,8 @@ namespace sim {
 
         Sim();
         ~Sim();
-        void Run(std::function<bool()> renderer_ready = {});
+        void Run(std::function<bool()> renderer_ready = {},
+                 std::function<void(double, const std::vector<Rocket>&)> on_step = {});
         void Stop() { running.store(false); }
         bool is_running() const { return running.load(); }
 
