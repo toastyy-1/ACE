@@ -72,51 +72,6 @@ RocketState Rocket::get_state() const {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * @brief updates the fuel mass based on the current rocket states
- */
-void Rocket::update_mass() {
-    // dry structure and propellant are tracked separately so the CoM migrates as the tanks drain
-    double M = 0, M_f = 0, m_cm = 0, base = 0;
-    for (int i = active_idx; i < num_stages(); i++) {
-        const Stage& st = props.stages[i];
-        M += st.m_dry + st.m_fuel;
-        M_f += st.m_fuel;
-        m_cm += st.m_dry * (base + st.tip_to_end_length - st.dry_CoM())
-              + st.m_fuel * (base + st.tip_to_end_length - st.fuel_CoM());
-        base += st.tip_to_end_length;
-    }
-
-    // the nosecone
-    double m_nose = props.nosecone_mass;
-    double z_nose = base + props.nosecone_length - props.nosecone_com_distance;
-    M += m_nose;
-    m_cm += m_nose * z_nose;
-
-    m_current = M;
-    m_fuel_current = M_f;
-    z_cm = m_cm / M;
-
-    // also adjust moment using assumption that the structure and the propellant column are each uniform cylinders
-    double R2 = props.radius * props.radius, I_trans = 0;
-    base = 0;
-    for (int i = active_idx; i < num_stages(); i++) {
-        const Stage& st = props.stages[i];
-        double L = st.tip_to_end_length, L_f = st.fuel_length * st.fuel_fill();
-        double d_dry = (base + L - st.dry_CoM()) - z_cm;
-        double d_fuel = (base + L - st.fuel_CoM()) - z_cm;
-        I_trans += (1.0 / 12.0) * st.m_dry * (3.0 * R2 + L * L) + st.m_dry * d_dry * d_dry;
-        I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
-        base += L;
-    }
-
-    // nosecone is treated as a thin conical shell
-    double h = props.nosecone_length, d_nose = z_nose - z_cm;
-    I_trans += m_nose * (R2 / 4.0 + h * h / 18.0) + m_nose * d_nose * d_nose;
-
-    I_body = { I_trans, I_trans, 0.5 * R2 * M };
-}
-
-/**
  * @brief
  * @param latitude_deg latitude input in degrees
  * @param longitude_deg longitude input in degrees
@@ -152,107 +107,6 @@ static Vec3 nose_from_quat(const Quat& q) {
  */
 Vec3 Rocket::nose_direction_eci(const Quat& q) const {
     return nose_from_quat(q);
-}
-
-/**
- * gravitational acceleration in the ECI frame
- * @param r current position
- * @return gravitational acceleration vector (m/s^2)
- */
-Vec3 Rocket::calc_gravity_accel(const Vec3& r) {
-    double r2       = r.dot(r);
-    double r_norm   = std::sqrt(r2);
-    double pm       = -GM_EARTH / (r2 * r_norm);
-
-    double zr2      = (r.z * r.z) / r2;
-    double k        = 1.5 * J2 * (EARTH_RADIUS * EARTH_RADIUS) / r2;
-
-    Vec3 g = {
-        .x = pm * r.x * (1.0 - k * (5.0 * zr2 - 1.0)),
-        .y = pm * r.y * (1.0 - k * (5.0 * zr2 - 1.0)),
-        .z = pm * r.z * (1.0 - k * (5.0 * zr2 - 3.0))
-    };
-
-    grav_accel = g;
-    return g;
-}
-
-/**
- * power relationship density equation, sets T to the layer temperature
- * @param altitude altitude above the surface (m)
- * @param T output, air temperature at this altitude (K)
- * @param rho_b air density at the base of the layer (kg/m^3)
- * @param T_b air temperature at the base of the layer (K)
- * @param L temperature lapse rate in the layer, change in temperature per meter of altitude (K/m)
- * @param layer_base_alt altitude of the base of the layer (m)
- * @return air density at this altitude (kg/m^3)
- */
-static double pow_dens(double altitude, double& T, double rho_b, double T_b, double L, double layer_base_alt) {
-    T = T_b + L * (altitude - layer_base_alt);
-    return rho_b * pow(( T / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
-}
-
-/**
- * exponential relationship density equation, sets T to the layer temperature
- * @param altitude altitude above the surface (m)
- * @param T output, air temperature at this altitude, constant across an isothermal layer (K)
- * @param rho_b air density at the base of the layer (kg/m^3)
- * @param T_b air temperature throughout the layer (K)
- * @param layer_base_alt altitude of the base of the layer (m)
- * @return air density at this altitude (kg/m^3)
- */
-static double exp_dens(double altitude, double& T, double rho_b, double T_b, double layer_base_alt) {
-    T = T_b;
-    return rho_b * exp(-1.0 * (g0 * (altitude - layer_base_alt)) / (R_d * T_b));
-}
-
-/**
- * standard atmosphere layers
- * @param altitude altitude above the surface (m)
- * @param air_density output, air density (kg/m^3)
- * @param air_pressure output, static air pressure (Pa)
- * @param speed_of_sound output, speed of sound in the air (m/s)
- * @param mu output, dynamic viscosity of the air from Sutherland's law (Pa*s)
- */
-void atmosphere(double altitude, double& air_density, double& air_pressure, double& speed_of_sound, double& mu) {
-    double T = 288.15; // layer temperature, set by whichever branch runs
-
-    // troposphere
-    if (altitude < 11000) {
-        air_density = pow_dens(altitude, T, 1.2250, 288.15, -0.0065, 0);
-    }
-    // lower stratosphere
-    else if (altitude < 20000) {
-        air_density = exp_dens(altitude, T, 0.36391, 216.65, 11000);
-    }
-    // middle stratosphere
-    else if (altitude < 32000) {
-        air_density = pow_dens(altitude, T, 0.088035, 216.65, 0.001, 20000);
-    }
-    // upper stratosphere
-    else if (altitude < 47000) {
-        air_density = pow_dens(altitude, T, 0.013225, 228.65, 0.0028, 32000);
-    }
-    // lower mesosphere
-    else if (altitude < 51000) {
-        air_density = exp_dens(altitude, T, 0.0014275, 270.65, 47000);
-    }
-    // middle mesosphere
-    else if (altitude < 71000) {
-        air_density = pow_dens(altitude, T, 0.00086160, 270.65, -0.0028, 51000);
-    }
-    // upper mesosphere
-    else if (altitude < 86000) {
-        air_density = pow_dens(altitude, T, 0.000064211, 214.65, -0.0020, 71000);
-    }
-    // thermosphere
-    else {
-        air_density = exp_dens(altitude, T, 0.000006958, 186.87, 86000);
-    }
-
-    air_pressure = air_density * R_d * T;
-    speed_of_sound = sqrt(1.4 * R_d * T);
-    mu = 1.458e-6 * pow(T, 1.5) / (T + 110.4);
 }
 
 /**
@@ -424,7 +278,7 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
 KinematicModifier Rocket::kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn) {
     KinematicModifier drag = calc_drag_kinematics(r_i, v_i, q_i, w_i, m_i, props);
     KinematicModifier prop = calc_propulsion_kinematics(r_i, v_i, q_i, w_i, m_i, props, t_burn);
-    Vec3 grav = calc_gravity_accel(r_i);
+    Vec3 grav = calc_gravity_accel(r_i, GM_EARTH, J2, EARTH_RADIUS);
 
     KinematicModifier state;
     state.accel = drag.accel + prop.accel + grav;
@@ -551,7 +405,7 @@ void Rocket::update_dynamics(double current_time) {
     altitude = r.mag() - surface_r; // the ground contact may have moved the rocket
 
     // gravity, drag, and thrust at new position
-    Vec3 g_end = calc_gravity_accel(r);
+    Vec3 g_end = calc_gravity_accel(r, GM_EARTH, J2, EARTH_RADIUS);
     KinematicModifier drag_end = calc_drag_kinematics(r, v, q_rocket, w, m_end, props);
     KinematicModifier prop_end = calc_propulsion_kinematics(r, v, q_rocket, w, m_end, props, burn_time);
 
@@ -594,6 +448,51 @@ void Rocket::update_dynamics(double current_time) {
         row.m_fuel_stage = s.m_fuel;
         data_export->write_row(row);
     }
+}
+
+/**
+ * @brief updates the fuel mass based on the current rocket states
+ */
+void Rocket::update_mass() {
+    // dry structure and propellant are tracked separately so the CoM migrates as the tanks drain
+    double M = 0, M_f = 0, m_cm = 0, base = 0;
+    for (int i = active_idx; i < num_stages(); i++) {
+        const Stage& st = props.stages[i];
+        M += st.m_dry + st.m_fuel;
+        M_f += st.m_fuel;
+        m_cm += st.m_dry * (base + st.tip_to_end_length - st.dry_CoM())
+              + st.m_fuel * (base + st.tip_to_end_length - st.fuel_CoM());
+        base += st.tip_to_end_length;
+    }
+
+    // the nosecone
+    double m_nose = props.nosecone_mass;
+    double z_nose = base + props.nosecone_length - props.nosecone_com_distance;
+    M += m_nose;
+    m_cm += m_nose * z_nose;
+
+    m_current = M;
+    m_fuel_current = M_f;
+    z_cm = m_cm / M;
+
+    // also adjust moment using assumption that the structure and the propellant column are each uniform cylinders
+    double R2 = props.radius * props.radius, I_trans = 0;
+    base = 0;
+    for (int i = active_idx; i < num_stages(); i++) {
+        const Stage& st = props.stages[i];
+        double L = st.tip_to_end_length, L_f = st.fuel_length * st.fuel_fill();
+        double d_dry = (base + L - st.dry_CoM()) - z_cm;
+        double d_fuel = (base + L - st.fuel_CoM()) - z_cm;
+        I_trans += (1.0 / 12.0) * st.m_dry * (3.0 * R2 + L * L) + st.m_dry * d_dry * d_dry;
+        I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
+        base += L;
+    }
+
+    // nosecone is treated as a thin conical shell
+    double h = props.nosecone_length, d_nose = z_nose - z_cm;
+    I_trans += m_nose * (R2 / 4.0 + h * h / 18.0) + m_nose * d_nose * d_nose;
+
+    I_body = { I_trans, I_trans, 0.5 * R2 * M };
 }
 
 /**
@@ -645,5 +544,5 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
     w = rotate_by_quat(q.conjugate(), w_earth);
     a = w_earth.cross(w_earth.cross(origin_pos));
-    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos));
+    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos, GM_EARTH, J2, EARTH_RADIUS));
 }

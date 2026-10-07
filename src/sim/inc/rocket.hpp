@@ -264,7 +264,7 @@ class Rocket {
     // every acceleration (ECI) and every torque about the CoM (body) acting on the rocket
     KinematicModifier kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn); // gravity + drag + thrust + rcs
         KinematicModifier calc_drag_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props);
-        Vec3 calc_gravity_accel(const Vec3& r);
+        Vec3 calc_gravity_accel(const Vec3& r, const double GM, const double J2, const double R);
         KinematicModifier calc_propulsion_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props, double t_burn);
         Vec3 calc_rcs_torque() const;
     double fuel_burned(double t0, double t1) const;
