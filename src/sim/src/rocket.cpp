@@ -16,10 +16,14 @@
  * @param rocket_props property struct defining geometry/characteristics of the rocket
  * @param track_data true if data is to be logged to a csv
  * @param export_interval how often that data should be logged
+ * @param start_in_orbit true if the rocket starts on the orbit instead of at the origin coordinates
+ * @param orbit orbital elements the rocket would start on if the above is true
  */
 Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double origin_longitude, double target_latitude,
-               double target_longitude, const RocketProps& rocket_props, bool track_data, double export_interval) {
-    set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
+               double target_longitude, const RocketProps& rocket_props, bool track_data, double export_interval,
+               bool start_in_orbit, const OrbitElements& orbit) {
+    if (start_in_orbit) set_start_orbit(orbit, target_latitude, target_longitude);
+    else                set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
     props = rocket_props;
     name = rocket_name;
 
@@ -545,4 +549,47 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     w = rotate_by_quat(q.conjugate(), w_earth);
     a = w_earth.cross(w_earth.cross(origin_pos));
     a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos, GM_EARTH, J2, EARTH_RADIUS));
+}
+
+/**
+ * sets the starting position, velocity, and attitude of the rocket from orbital elements
+ * @param orbit classical orbital elements the rocket starts on
+ * @param target_latitude
+ * @param target_longitude
+ */
+void Rocket::set_start_orbit(const OrbitElements& orbit, double target_latitude, double target_longitude) {
+    double sma = orbit.semi_major_axis * KM_TO_M;
+    double e   = orbit.eccentricity;
+    double nu  = orbit.true_anomaly * DEG_TO_RAD;
+
+    // in perifocal frame
+    double p = sma * (1.0 - e * e);
+    double r_pf = p / (1.0 + e * cos(nu));
+    double v_pf = sqrt(GM_EARTH / p);
+    Vec3 r_perifocal = {r_pf * cos(nu), r_pf * sin(nu), 0};
+    Vec3 v_perifocal = {-v_pf * sin(nu), v_pf * (e + cos(nu)), 0};
+
+    // perifocal to ECI
+    auto axis_quat = [](double angle_deg, const Vec3& axis) {
+        double half = angle_deg * DEG_TO_RAD / 2;
+        return Quat{cos(half), sin(half) * axis.x, sin(half) * axis.y, sin(half) * axis.z};
+    };
+    Quat q_pf_to_eci = axis_quat(orbit.raan, {0, 0, 1}) * axis_quat(orbit.inclination, {1, 0, 0}) * axis_quat(orbit.arg_periapsis, {0, 0, 1});
+
+    set_pos(rotate_by_quat(q_pf_to_eci, r_perifocal));
+    v = rotate_by_quat(q_pf_to_eci, v_perifocal);
+    start_state.origin_r_eci = r;
+
+    // set target position
+    start_state.target_r_ecef = lat_lon_to_ecef(target_latitude, target_longitude);
+
+    // point the nose prograde
+    Vec3 u = v.unit();
+    Quat q = u.z > -1.0 + 1e-12 ? Quat{1.0 + u.z, -u.y, u.x, 0.0}.normalize() : Quat{0, 1, 0, 0};
+    set_orientation(q);
+    start_state.origin_q_eci = q;
+
+    w = {0, 0, 0};
+    a = calc_gravity_accel(r, GM_EARTH, J2, EARTH_RADIUS);
+    a_spec = {0, 0, 0};
 }

@@ -17,6 +17,16 @@ struct RocketStartState {
     Vec3 target_r_ecef;
 };
 
+// orbital elements for a rocket that starts in orbit
+struct OrbitElements {
+    double semi_major_axis = 0; // km
+    double eccentricity = 0;
+    double inclination = 0;     // deg
+    double raan = 0;            // deg, measured from the ECI +x axis (the greenwich meridian at t = 0)
+    double arg_periapsis = 0;   // deg
+    double true_anomaly = 0;    // deg
+};
+
 // holds both an delta acceleration and delta torque vector so a single funciton can return
 // acts on both accel and torque at the same time, to save computation
 struct KinematicModifier {
@@ -128,7 +138,8 @@ class Rocket {
     // setup                                                                                     //
     ///////////////////////////////////////////////////////////////////////////////////////////////
     Rocket(const std::string& name, double origin_latitude, double origin_longitude, double target_latitude,
-           double target_longitude, const RocketProps& props, bool track_data, double export_interval);
+           double target_longitude, const RocketProps& props, bool track_data, double export_interval,
+           bool start_in_orbit, const OrbitElements& orbit);
     ~Rocket();
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -257,6 +268,7 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // starting
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
+    void set_start_orbit(const OrbitElements& orbit, double target_latitude, double target_longitude); // same as set_start, but starting in orbit
     
     // kinematic helpers
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
