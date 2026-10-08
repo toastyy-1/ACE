@@ -1,3 +1,6 @@
+// Copyright 2026 Tyler Wiggins
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * handles all dynamic systems for rocket.cpp that involve control systems
  */

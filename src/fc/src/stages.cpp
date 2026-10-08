@@ -1,3 +1,6 @@
+// Copyright 2026 Tyler Wiggins
+// SPDX-License-Identifier: Apache-2.0
+
 #include "fc/inc/fc.hpp"
 #include <iostream>
 #include <algorithm>

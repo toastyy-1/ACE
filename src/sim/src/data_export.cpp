@@ -1,3 +1,6 @@
+// Copyright 2026 Tyler Wiggins
+// SPDX-License-Identifier: Apache-2.0
+
 #include "sim/inc/data_export.hpp"
 #include <charconv>
 
