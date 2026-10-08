@@ -86,6 +86,18 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
             rocket.target_lat = value_or(rn, "target_lat", 0.0);
             rocket.target_lon = value_or(rn, "target_lon", 0.0);
 
+            rocket.start_in_orbit = value_or(rn, "start_in_orbit", false);
+            rocket.orbit.semi_major_axis = value_or(rn, "semi_major_axis_km", 0.0);
+            rocket.orbit.eccentricity    = value_or(rn, "eccentricity", 0.0);
+            rocket.orbit.inclination     = value_or(rn, "inclination_deg", 0.0);
+            rocket.orbit.raan            = value_or(rn, "raan_deg", 0.0);
+            rocket.orbit.arg_periapsis   = value_or(rn, "arg_periapsis_deg", 0.0);
+            rocket.orbit.true_anomaly    = value_or(rn, "true_anomaly_deg", 0.0);
+            if (rocket.start_in_orbit && (rocket.orbit.semi_major_axis <= 0 || rocket.orbit.eccentricity < 0 || rocket.orbit.eccentricity >= 1)) {
+                std::cerr << "config error: '" << path << "' rocket " << ri
+                          << " starting in orbit needs semi_major_axis_km > 0 and 0 <= eccentricity < 1\n";
+            }
+
             rocket.props.radius = value_or(rn, "radius", rocket.props.radius);
             rocket.props.nosecone_length = value_or(rn, "nosecone_length", rocket.props.nosecone_length);
             rocket.props.nosecone_mass = value_or(rn, "nosecone_mass", rocket.props.nosecone_mass);

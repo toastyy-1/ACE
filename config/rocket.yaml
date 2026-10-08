@@ -11,6 +11,14 @@ rockets:
     target_lat: 36.153
     target_lon: -5.346
 
+    start_in_orbit: false # if true, starts on the orbit below
+    semi_major_axis_km: 6778.0
+    eccentricity: 0.0
+    inclination_deg: 51.6
+    raan_deg: 0.0
+    arg_periapsis_deg: 0.0
+    true_anomaly_deg: 0.0
+
     radius: 0.835 # radius of the rocket (cylinder)
     nosecone_length: 3.0
     nosecone_mass: 100.0 # mass of the nosecone/payload on top of the last stage (kg)

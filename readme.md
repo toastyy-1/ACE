@@ -97,6 +97,9 @@ Note that while there might be multiple vehicles, the FC is the same for all of 
 | `export_interval` | `0.0` | sim seconds between exported rows (`0` = every step) |
 | `origin_lat` / `origin_lon` | `0.0` | launch site, degrees |
 | `target_lat` / `target_lon` | `0.0` | aim point, degrees. given to the FC as `r_target_ecef` |
+| `start_in_orbit` | `false` | start on the orbit below instead of at `origin_lat` / `origin_lon`, nose prograde |
+| `semi_major_axis_km` / `eccentricity` | `0.0` | orbit size (km) and shape, `0 <= eccentricity < 1` |
+| `inclination_deg` / `raan_deg` / `arg_periapsis_deg` / `true_anomaly_deg` | `0.0` | orbit orientation and starting point, degrees. RAAN is measured from the greenwich meridian at `t = 0` |
 | `radius` | `0.0` | tank radius (m) |
 | `nosecone_length` | `0.0` | m |
 | `nosecone_mass` | `0.0` | nosecone/payload mass on top of the last stage (kg) |

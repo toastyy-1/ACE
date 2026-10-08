@@ -45,7 +45,8 @@ namespace sim {
 
         for (const RocketEntry& rocket : load_rocket_config("config/rocket.yaml")) {
             rocket_list.emplace_back(rocket.name, rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
-                                     rocket.props, rocket.track_data, rocket.export_interval);
+                                     rocket.props, rocket.track_data, rocket.export_interval,
+                                     rocket.start_in_orbit, rocket.orbit);
         }
 
         // configure the rocket for starting settings
