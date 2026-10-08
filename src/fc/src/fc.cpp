@@ -204,13 +204,13 @@ Quat FlightController::set_new_engine_gimbal_quat() {
     Quat target = cs.target_att;
     Quat current = cs.att;
 
-    // calculate error between the two quaternions
-    Quat q_err = current.inverse() * target;
-    if (q_err.w < 0) q_err = {-q_err.w, -q_err.x, -q_err.y, -q_err.z};
+    // calculate error in orientation
+    Vec3 t = fc_q_rotate(current.inverse(), fc_q_rotate(target, {0, 0, 1})); // target nose in the body frame
+    double angle = acos(std::clamp(t.z, -1.0, 1.0));
+    double sin_angle = sqrt(t.x * t.x + t.y * t.y);
 
-    // for small angles the vector part of the error quaternion is proportional 
-    // to the rotational error about body axis. n is the roll, pitch, yaw error in radians
-    Vec3 n = { .x = 2 * q_err.x, .y = 2 * q_err.y, .z = 2 * q_err.z };
+    // rotation about body axes that swings the nose on target
+    Vec3 n = sin_angle > 1e-12 ? Vec3{ -t.y, t.x, 0 } * (angle / sin_angle) : Vec3{ 0, 0, 0 };
 
     // calculate required torque using PD
     double wn = 5.0;

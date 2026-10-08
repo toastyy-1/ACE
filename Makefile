@@ -1,7 +1,7 @@
 CXX      := g++
 CC       := gcc
-CXXFLAGS := -std=c++20 -Wall -Wpedantic -Isrc -Ithird_party -pthread -O3 -flto -funroll-loops -D_USE_MATH_DEFINES
-CFLAGS   := -std=c11 -Wall -Wpedantic -Isrc -O3
+CXXFLAGS := -std=c++20 -Wall -Wpedantic -Isrc -Ithird_party -pthread -O3 -ffp-contract=off -flto -funroll-loops -D_USE_MATH_DEFINES
+CFLAGS   := -std=c11 -Wall -Wpedantic -Isrc -O3 -ffp-contract=off
 
 # --- flight controller (swap this out to test your own) ---
 # whatever you point FC_SRC at must implement fc_init / fc_update / fc_free from
