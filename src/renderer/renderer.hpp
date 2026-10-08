@@ -120,10 +120,14 @@ private:
     // off the elapsed time. Indexed to match states_ (reset when the count changes).
     std::vector<double> detStart_;
 
-    // Flown-path history per rocket, in ECI metres (recorded regardless of whether
+    // Flown-path history per rocket, in ECEF metres (recorded regardless of whether
     // trails are shown, so toggling on reveals the full path). Indexed to match
     // states_; reset when the rocket count changes.
     std::vector<std::vector<Vec3>> trails_;
+
+    // State each trail's last point was recorded at, so the gap to the next frame
+    // can be filled in. Indexed to match trails_.
+    std::vector<RocketState> trailPrev_;
 
     // Overlay visibility, toggled by number keys 1-6 (see HandleInput). The
     // essentials default on; the debug helpers (axes + velocity vectors) share a

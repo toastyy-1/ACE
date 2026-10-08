@@ -143,21 +143,39 @@ void Renderer::UpdateDetonations() {
 }
 
 void Renderer::UpdateTrails() {
-    // Record each rocket's flown path in ECI metres. Points are added by distance
-    // (not per frame) for even spatial density, and capped so a long flight can't
-    // grow the buffer without bound. Recorded even while trails are hidden so the
-    // full path appears the moment they're toggled on.
+    // Record each rocket's flown path in ECEF metres. The sim runs many steps per
+    // frame, so the gap since the last recorded point is filled with a cubic
+    // Hermite curve through both ends' ECI position and velocity. Point spacing
+    // scales with ground speed (about one point per second of flight), so slow
+    // turns near the pad stay smooth and fast arcs don't waste points. Capped so a
+    // long flight can't grow the buffer without bound. Recorded even while trails
+    // are hidden so the full path appears the moment they're toggled on.
     const size_t n = states_.size();
-    if (trails_.size() != n) trails_.assign(n, {});   // rocket count changed: reset
-    const double minStep = 1000.0;   // metres between recorded points (~1 km)
-    const size_t maxPts  = 8000;     // ~8000 km of trail per rocket
+    if (trails_.size() != n) { trails_.assign(n, {}); trailPrev_.assign(n, {}); }   // rocket count changed: reset
+    const double pointInterval = 1.0;    // seconds of flight between points
+    const size_t maxPts        = 8000;   // ~8000 s of flight per rocket
     for (size_t i = 0; i < n; i++) {
-        Vec3  p  = states_[i].r;
+        const RocketState& cur  = states_[i];
+        const RocketState& prev = trailPrev_[i];
         auto& tr = trails_[i];
-        if (tr.empty() || (p - tr.back()).mag() >= minStep) {
-            tr.push_back(p);
-            if (tr.size() > maxPts) tr.erase(tr.begin(), tr.begin() + (tr.size() - maxPts));
+        if (tr.empty()) { tr.push_back(cur.r); trailPrev_[i] = cur; continue; }
+
+        double speed   = (cur.v - surface_velocity_eci(cur.r)).mag();
+        double spacing = clampd(speed * pointInterval, 10.0, 10000.0);   // metres
+        double gap     = (cur.r - tr.back()).mag();
+        if (gap < spacing) continue;
+
+        double dt = cur.t - prev.t;
+        Vec3 r0 = ecef_to_eci(prev.r, prev.t), v0 = ecef_to_eci(prev.v, prev.t) * dt;
+        Vec3 r1 = ecef_to_eci(cur.r,  cur.t),  v1 = ecef_to_eci(cur.v,  cur.t)  * dt;
+        int  steps = (int)fmin(std::ceil(gap / spacing), 1000.0);
+        for (int k = 1; k <= steps; k++) {
+            double u = (double)k / steps, u2 = u * u, u3 = u2 * u;
+            Vec3 p = r0 * (2*u3 - 3*u2 + 1) + v0 * (u3 - 2*u2 + u) + r1 * (3*u2 - 2*u3) + v1 * (u3 - u2);
+            tr.push_back(eci_to_ecef(p, prev.t + u * dt));
         }
+        trailPrev_[i] = cur;
+        if (tr.size() > maxPts) tr.erase(tr.begin(), tr.begin() + (tr.size() - maxPts));
     }
 }
 
@@ -339,13 +357,10 @@ void Renderer::DrawOneRocket(const RocketState& st, float thrustLevel, double de
 
 void Renderer::DrawPredictedTrajectory() const {
     // Where each rocket would coast if its engine cut out now: propagate the
-    // current state under point-mass gravity (no thrust, no drag) with RK4. The
+    // current state under the sim's J2 gravity (no thrust, no drag) with RK4. The
     // primary's path is drawn bright yellow; the others a dimmer grey so the
     // selected rocket stays legible in a crowd.
-    auto grav = [](Vec3 p) {
-        double rn = p.mag();
-        return p * (-GM_EARTH / (rn * rn * rn));
-    };
+    auto grav = INS::gravity_eci;
 
     const size_t n = states_.size();
     if (n == 0) return;
@@ -363,12 +378,24 @@ void Renderer::DrawPredictedTrajectory() const {
     std::vector<LineVertex> path;
     path.reserve(kPredictedVertexBudget + 2);
     for (size_t idx = 0; idx < n; idx++) {
-        Vec3  r = states_[idx].r;
-        Vec3  v = states_[idx].v;
+        // Propagate in ECI, then carry each point into the earth-fixed frame at its
+        // own time, so the path is where the rocket will be over the ground and the
+        // flown trail lands on it.
+        double t0 = states_[idx].t;
+        Vec3   r  = ecef_to_eci(states_[idx].r, t0);
+        Vec3   v  = ecef_to_eci(states_[idx].v, t0);
         RColor col = ((int)idx == primary_) ? kYellow : kGray;
 
-        RVec3 prev = ToView(r);
-        for (int i = 0; i < max_steps; i++) {
+        // A bound orbit repeats after one period: stop there instead of drawing laps over each other.
+        int    steps  = max_steps;
+        double energy = v.dot(v) / 2 - GM_EARTH / r.mag();
+        if (energy < 0) {
+            double sma = -GM_EARTH / (2 * energy);
+            steps = std::min(steps, (int)std::ceil(TAU * std::sqrt(sma * sma * sma / GM_EARTH) / dt));
+        }
+
+        RVec3 prev = ToView(states_[idx].r);
+        for (int i = 0; i < steps; i++) {
             Vec3 k1r = v,                k1v = grav(r);
             Vec3 k2r = v + k1v*(dt/2),   k2v = grav(r + k1r*(dt/2));
             Vec3 k3r = v + k2v*(dt/2),   k3v = grav(r + k2r*(dt/2));
@@ -376,7 +403,7 @@ void Renderer::DrawPredictedTrajectory() const {
             r += (k1r + k2r*2 + k3r*2 + k4r) * (dt/6);
             v += (k1v + k2v*2 + k3v*2 + k4v) * (dt/6);
 
-            RVec3 cur = ToView(r);
+            RVec3 cur = ToView(eci_to_ecef(r, t0 + (i + 1) * dt));
             path.push_back({ prev, col });
             path.push_back({ cur,  col });
             prev = cur;
