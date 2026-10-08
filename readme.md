@@ -271,3 +271,6 @@ void fc_free(fc_state* s) { free(s); }
 ```
 
 Build it with `make FC_SRC=src/fc/src/my_fc.c && ./program`.
+
+## AI Disclosure
+All of the simulation, numerical analysis code was written and reviewed by humans. However, all renderer and related non-essential code had varying levels of assistance with LLM models.
