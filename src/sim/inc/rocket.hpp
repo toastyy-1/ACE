@@ -6,6 +6,7 @@
 #include "sim_constants.hpp"
 #include "sim/inc/ins.hpp"
 #include "sim/inc/data_export.hpp"
+#include "sim/inc/ephemeris.hpp"
 #include "fc/inc/fc_sim_connector.hpp"
 #include <algorithm>
 #include <array>
@@ -142,7 +143,7 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     Rocket(const std::string& name, double origin_latitude, double origin_longitude, double target_latitude,
            double target_longitude, const RocketProps& props, bool track_data, double export_interval,
-           bool start_in_orbit, const OrbitElements& orbit);
+           bool start_in_orbit, const OrbitElements& orbit, bool moon_gravity, bool sun_gravity, const Ephemeris* ephem);
     ~Rocket();
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -208,6 +209,11 @@ class Rocket {
 
     // topography
     renderer::EarthSurface* topo = &renderer::EarthSurface::Get();
+
+    // sun and moon gravity
+    bool moon_gravity = false;
+    bool sun_gravity = false;
+    const Ephemeris* ephem = nullptr;
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // rocket static configuration                                                               //
@@ -277,9 +283,9 @@ class Rocket {
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);
 
     // every acceleration (ECI) and every torque about the CoM (body) acting on the rocket
-    KinematicModifier kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn); // gravity + drag + thrust + rcs
+    KinematicModifier kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn, double t); // gravity + drag + thrust + rcs
         KinematicModifier calc_drag_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props);
-        Vec3 calc_gravity_accel(const Vec3& r, const double GM, const double J2, const double R);
+        Vec3 calc_gravity_accel(const Vec3& r, const double GM, const double J2, const double R, const double t);
         KinematicModifier calc_propulsion_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props, double t_burn);
         Vec3 calc_rcs_torque() const;
     double fuel_burned(double t0, double t1) const;

@@ -22,10 +22,14 @@
  * @param export_interval how often that data should be logged
  * @param start_in_orbit true if the rocket starts on the orbit instead of at the origin coordinates
  * @param orbit orbital elements the rocket would start on if the above is true
+ * @param moon_gravity include the moon's gravity
+ * @param sun_gravity include the sun's gravity
+ * @param ephem sun and moon positions, must be loaded if either of the above is true
  */
 Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double origin_longitude, double target_latitude,
                double target_longitude, const RocketProps& rocket_props, bool track_data, double export_interval,
-               bool start_in_orbit, const OrbitElements& orbit) {
+               bool start_in_orbit, const OrbitElements& orbit, bool moon_gravity, bool sun_gravity, const Ephemeris* ephem)
+    : moon_gravity(moon_gravity), sun_gravity(sun_gravity), ephem(ephem) {
     if (start_in_orbit) set_start_orbit(orbit, target_latitude, target_longitude);
     else                set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
     props = rocket_props;
@@ -281,12 +285,13 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
  * @param w_i angular velocity, body frame
  * @param props rocket geometry
  * @param t_burn time since the active stage ignition
+ * @param t sim time
  * @return acceleration in ECI and torque about the CoM in body frame
  */
-KinematicModifier Rocket::kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn) {
+KinematicModifier Rocket::kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn, double t) {
     KinematicModifier drag = calc_drag_kinematics(r_i, v_i, q_i, w_i, m_i, props);
     KinematicModifier prop = calc_propulsion_kinematics(r_i, v_i, q_i, w_i, m_i, props, t_burn);
-    Vec3 grav = calc_gravity_accel(r_i, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius);
+    Vec3 grav = calc_gravity_accel(r_i, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius, t);
 
     KinematicModifier state;
     state.accel = drag.accel + prop.accel + grav;
@@ -325,7 +330,7 @@ void Rocket::update_dynamics(double current_time) {
     ////////////////////////////////////
     // k1 terms                       //
     ////////////////////////////////////
-    KinematicModifier k1 = kinematic_state(m, r, v, q_rocket, w, props, t_burn);
+    KinematicModifier k1 = kinematic_state(m, r, v, q_rocket, w, props, t_burn, current_time);
     Vec3 k1_r = v;
     Vec3 k1_v = k1.accel;
     Vec3 k1_w = ang_accel(w, I, k1.torque);
@@ -338,7 +343,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 v2 = v + k1_v * (dt / 2);
     Vec3 w2 = w + k1_w * (dt / 2);
     Quat q2 = q_rocket + k1_q * (dt / 2);
-    KinematicModifier k2 = kinematic_state(m_mid, r2, v2, q2, w2, props, t_burn + dt / 2);
+    KinematicModifier k2 = kinematic_state(m_mid, r2, v2, q2, w2, props, t_burn + dt / 2, current_time + dt / 2);
     Vec3 k2_r = v2;
     Vec3 k2_v = k2.accel;
     Vec3 k2_w = ang_accel(w2, I, k2.torque);
@@ -351,7 +356,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 v3 = v + k2_v * (dt / 2);
     Vec3 w3 = w + k2_w * (dt / 2);
     Quat q3 = q_rocket + k2_q * (dt / 2);
-    KinematicModifier k3 = kinematic_state(m_mid, r3, v3, q3, w3, props, t_burn + dt / 2);
+    KinematicModifier k3 = kinematic_state(m_mid, r3, v3, q3, w3, props, t_burn + dt / 2, current_time + dt / 2);
     Vec3 k3_r = v3;
     Vec3 k3_v = k3.accel;
     Vec3 k3_w = ang_accel(w3, I, k3.torque);
@@ -364,7 +369,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 v4 = v + k3_v * dt;
     Vec3 w4 = w + k3_w * dt;
     Quat q4 = q_rocket + k3_q * dt;
-    KinematicModifier k4 = kinematic_state(m_end, r4, v4, q4, w4, props, t_burn + dt);
+    KinematicModifier k4 = kinematic_state(m_end, r4, v4, q4, w4, props, t_burn + dt, current_time + dt);
     Vec3 k4_r = v4;
     Vec3 k4_v = k4.accel;
     Vec3 k4_w = ang_accel(w4, I, k4.torque);
@@ -413,7 +418,7 @@ void Rocket::update_dynamics(double current_time) {
     altitude = r.mag() - surface_r; // the ground contact may have moved the rocket
 
     // gravity, drag, and thrust at new position
-    Vec3 g_end = calc_gravity_accel(r, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius);
+    Vec3 g_end = calc_gravity_accel(r, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius, t_end);
     KinematicModifier drag_end = calc_drag_kinematics(r, v, q_rocket, w, m_end, props);
     KinematicModifier prop_end = calc_propulsion_kinematics(r, v, q_rocket, w, m_end, props, burn_time);
 
@@ -552,7 +557,7 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     Vec3 w_earth = {0, 0, planet::EARTH.rotation_rate};
     w = rotate_by_quat(q.conjugate(), w_earth);
     a = w_earth.cross(w_earth.cross(origin_pos));
-    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius));
+    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius, 0.0));
 }
 
 /**
@@ -594,6 +599,6 @@ void Rocket::set_start_orbit(const OrbitElements& orbit, double target_latitude,
     start_state.origin_q_eci = q;
 
     w = {0, 0, 0};
-    a = calc_gravity_accel(r, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius);
+    a = calc_gravity_accel(r, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius, 0.0);
     a_spec = {0, 0, 0};
 }

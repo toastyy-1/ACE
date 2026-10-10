@@ -36,6 +36,7 @@ namespace sim {
         double t = 0;
         bool moon_gravity = false; // set by config
         bool sun_gravity = false; // set by config
+        Ephemeris ephem; // sun and moon positions
         std::atomic<bool> running{true};
     };
 

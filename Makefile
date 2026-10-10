@@ -16,7 +16,7 @@ FC_CXX_SRCS := $(filter-out %.c,$(FC_SRC))
 FC_C_OBJS   := $(addprefix build/fc/,$(notdir $(FC_C_SRCS:.c=.o)))
 
 SIM_SRCS    := src/main.cpp \
-               src/sim/src/sim.cpp src/sim/src/rocket.cpp src/sim/src/control.cpp src/sim/src/drag.cpp src/sim/src/propulsion.cpp src/sim/src/gravitation.cpp src/sim/src/atmosphere.cpp \
+               src/sim/src/sim.cpp src/sim/src/rocket.cpp src/sim/src/control.cpp src/sim/src/drag.cpp src/sim/src/propulsion.cpp src/sim/src/gravitation.cpp src/sim/src/atmosphere.cpp src/sim/src/ephemeris.cpp \
                src/sim/src/config.cpp src/sim/src/data_export.cpp src/fc/src/fc_api.cpp \
                $(FC_CXX_SRCS)
 
@@ -40,6 +40,9 @@ RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models
                src/renderer/raylib/hud.cpp src/renderer/raylib/coastline.cpp
 RAYLIB_ARCH := -march=native
 TARGET      := program
+
+# JPL DE440 ephemeris for sun and moon gravity, every build fetches it if missing
+EPHEMERIS   := config/de440s.bsp
 
 # --- bgfx backend (`make bgfx`) ---
 BGFX_SRCS   := src/renderer/bgfx/bgfx_backend.cpp src/renderer/bgfx/bgfx_util.cpp src/renderer/bgfx/models.cpp \
@@ -96,7 +99,7 @@ endif
 # ---------------------------------------------------------------------------
 # raylib (default)
 # ---------------------------------------------------------------------------
-$(TARGET): $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS) $(HEADERS)
+$(TARGET): $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS) $(HEADERS) | $(EPHEMERIS)
 	$(CXX) $(CXXFLAGS) $(RAYLIB_ARCH) $(COMMON_SRCS) $(RAYLIB_SRCS) $(FC_C_OBJS) -o $@ $(LDLIBS)
 
 run: $(TARGET)
@@ -110,7 +113,7 @@ SHADER_BINS := $(SHADER_SRCS:.sc=.bin)
 
 bgfx: $(BGFX_TARGET)
 
-$(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) $(HEADERS) shaders-bgfx
+$(BGFX_TARGET): $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) $(HEADERS) shaders-bgfx | $(EPHEMERIS)
 	$(CXX) $(CXXFLAGS) $(BGFX_ARCH) $(BGFX_DEFS) $(BGFX_INCS) \
 	    $(COMMON_SRCS) $(BGFX_SRCS) $(FC_C_OBJS) -o $@ $(BGFX_LIBS) $(BGFX_SYSLIBS)
 
@@ -122,7 +125,7 @@ run-bgfx: bgfx
 # ---------------------------------------------------------------------------
 headless: $(HEADLESS_TARGET)
 
-$(HEADLESS_TARGET): $(SIM_SRCS) $(HEADLESS_SRCS) $(FC_C_OBJS) $(HEADERS)
+$(HEADLESS_TARGET): $(SIM_SRCS) $(HEADLESS_SRCS) $(FC_C_OBJS) $(HEADERS) | $(EPHEMERIS)
 	$(CXX) $(CXXFLAGS) $(RAYLIB_ARCH) $(HEADLESS_DEFS) $(SIM_SRCS) $(HEADLESS_SRCS) $(FC_C_OBJS) -o $@
 
 run-headless: headless
@@ -146,6 +149,12 @@ bgfx-deps: $(BGFX_TEXTURES_READY)
 	cmake -S $(BGFX_SUB) -B $(BGFX_DIR) -G "$(CMAKE_GEN)" \
 	    -DCMAKE_BUILD_TYPE=Release -DBGFX_BUILD_EXAMPLES=OFF -DBGFX_BUILD_TOOLS=ON
 	cmake --build $(BGFX_DIR) -j 12
+
+# ---------------------------------------------------------------------------
+# JPL DE440 ephemeris, covers 1849 - 2150
+# ---------------------------------------------------------------------------
+$(EPHEMERIS):
+	curl -fL -o $@ https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440s.bsp
 
 clean:
 	$(RM) $(TARGET) $(BGFX_TARGET) $(HEADLESS_TARGET)

@@ -6,6 +6,7 @@
 !config/**/*.csv
 *.dds
 *.bin
+*.bsp
 .bgfx_textures_ready
 build/
 .vscode

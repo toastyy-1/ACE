@@ -21,8 +21,10 @@ struct SimConfig {
     double time_step = 0.01; // seconds
     double step_delay = 0.001; // seconds
     double max_time = 0.0; // seconds
-    bool moon_gravity = false; // include the moon's gravity
-    bool sun_gravity = false; // include the sun's gravity
+    bool moon_gravity = true; 
+    bool sun_gravity = true;
+    std::string ephemeris = "config/de440s.bsp";
+    std::string epoch = "2026-01-01T00:00:00";
 };
 
 // reads the sims config file

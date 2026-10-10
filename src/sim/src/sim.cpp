@@ -47,11 +47,15 @@ namespace sim {
         consts::STEP_DELAY = config.step_delay;
         moon_gravity = config.moon_gravity;
         sun_gravity = config.sun_gravity;
+        if ((moon_gravity || sun_gravity) && !ephem.load(config.ephemeris, config.epoch)) {
+            std::cerr << "config error: sun and moon gravity disabled\n";
+            moon_gravity = sun_gravity = false;
+        }
 
         for (const RocketEntry& rocket : load_rocket_config("config/rocket.yaml")) {
             rocket_list.emplace_back(rocket.name, rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
                                      rocket.props, rocket.track_data, rocket.export_interval,
-                                     rocket.start_in_orbit, rocket.orbit);
+                                     rocket.start_in_orbit, rocket.orbit, moon_gravity, sun_gravity, &ephem);
         }
 
         // configure the rocket for starting settings

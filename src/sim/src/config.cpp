@@ -59,6 +59,8 @@ SimConfig load_sim_config(const std::string& path) {
     cfg.max_time = value_or(root, "max_time", cfg.max_time);
     cfg.moon_gravity = value_or(root, "moon_gravity", cfg.moon_gravity);
     cfg.sun_gravity = value_or(root, "sun_gravity", cfg.sun_gravity);
+    cfg.ephemeris = value_or(root, "ephemeris", cfg.ephemeris);
+    cfg.epoch = value_or(root, "epoch", cfg.epoch);
 
     return cfg;
 }

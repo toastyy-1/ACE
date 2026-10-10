@@ -79,6 +79,10 @@ The sim is set up by two YAML files. If you decide not to add a field it will re
 | `time_step` | `0.01` | integration step in seconds, and therefore the `fc_update` period |
 | `step_delay` | `0.001` | real life sleep between steps, purely to slow the sim down for viewing |
 | `max_time` | `0` | sim seconds to run before the sim stops (`0` = run forever) |
+| `moon_gravity` | `true` | include the moon's gravity |
+| `sun_gravity` | `true` | include the sun's gravity |
+| `ephemeris` | `config/de440s.bsp` | JPL DE440 kernel for the sun and moon positions |
+| `epoch` | `2026-01-01T00:00:00` | UTC date and time at sim t = 0 |
 
 ### `rocket.yaml`
 

@@ -5,5 +5,7 @@ step_delay: 0.001  # the time in between steps the sim stops to take a break (fo
 max_time: 100000       # simulation lifetime, seconds (0 = run forever)
 
 # other body gravity
-moon_gravity: false  # include the moon's gravity
-sun_gravity: false   # include the sun's gravity
+moon_gravity: true   # include moon gravity
+sun_gravity: true    # include sun gravity
+ephemeris: config/de440s.bsp    # JPL DE440
+epoch: "2026-10-10T12:00:00"    # UTC date and time at sim start
