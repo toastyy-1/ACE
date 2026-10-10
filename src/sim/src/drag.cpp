@@ -54,12 +54,11 @@ static double axial_drag_force(double dynamic_pressure, double A_ref, double C_A
  * @brief Munk/Barrowman potential flow
  * @param AoA angle of attack
  * @param A_ref reference area, the body's cross section (m^2)
- * @param A_front cross sectional area at the front of the nosecone (m^2)
- * @param A_back cross sectional area at the base of the nosecone (m^2)
- * @return nosecone normal force coefficient
+ * @param dA change in cross sectional area along the body (m^2)
+ * @return normal force coefficient
  */
-static double cone_C_N_subsonic(double AoA, double A_ref, double A_front, double A_back) {
-    return (2.0 * sin(AoA) / A_ref) * (A_back - A_front);
+static double C_N_potential(double AoA, double A_ref, double dA) {
+    return (2.0 * sin(AoA) / A_ref) * dA;
 }
 
 /**
@@ -71,24 +70,6 @@ static double cone_C_N_subsonic(double AoA, double A_ref, double A_front, double
  */
 static double C_N_lift_subsonic(double AoA, double A_planiform, double A_ref) {
     return 1.1 * (A_planiform / A_ref) * sin(AoA) * sin(AoA);
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////
-// center of pressure                                                                        //
-///////////////////////////////////////////////////////////////////////////////////////////////
-/**
- * @brief
- * @param cone_height nosecone length (m)
- * @param len_body length of the cylindrical body behind the nosecone (m)
- * @param C_N_cone nosecone normal force coefficient 
- * @param C_N_body body normal force coefficient
- * @return center of pressure distance back from the nose tip (m)
- */
-static double X_CP(double cone_height, double len_body, double C_N_cone, double C_N_body) {
-    double t1t = (2.0 / 3.0) * cone_height * C_N_cone;
-    double t2t = (cone_height + 0.5 * len_body) * C_N_body;
-    double t1b = C_N_cone + C_N_body;
-    return (t1t + t2t) / t1b;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -185,6 +166,94 @@ static double C_d_base_drag(double M, bool engine_burning) {
     return C_d_b;
 }
 
+/**
+ * @brief sphere drag
+ * @param M Mach number
+ * @return drag coefficient of sphere
+ */
+static double C_d_sphere(double M) {
+    static const double mach[] = {0.0, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 3.0, 5.0};
+    static const double C_d[]  = {0.47, 0.50, 0.60, 0.80, 0.95, 1.00, 0.98, 0.94, 0.92};
+    const int n = sizeof(mach) / sizeof(mach[0]);
+
+    if (M >= mach[n - 1]) {
+        return C_d[n - 1];
+    }
+    int i = 1;
+    while (M > mach[i]) {
+        i++;
+    }
+    double f = (M - mach[i - 1]) / (mach[i] - mach[i - 1]);
+    return C_d[i - 1] + f * (C_d[i] - C_d[i - 1]);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// body geometry                                                                             //
+///////////////////////////////////////////////////////////////////////////////////////////////
+// running totals for the body from the nose tip back, moments are taken about the nose tip
+struct AeroBody {
+    double x = 0;       // length so far (m)
+    double x_joint = 0; // where a change in radius at the next joint acts (m)
+    double r_aft = 0;   // radius at the aft end so far (m)
+    double R_max = 0;
+    double A_lift = 0, A_lift_x = 0; // growth in cross section and its moment
+    double A_plan = 0, A_plan_x = 0; // planform and its moment
+    double A_wet = 0;
+    double front_half_angle = 0;
+    int n_seg = 0;
+    Geometry front;
+};
+
+/**
+ * @brief adds the next segment aft of everything alr in b
+ * @param b body accumulated
+ * @param g segment shape
+ * @param L segment length (m)
+ */
+static void add_segment(AeroBody& b, const Geometry& g, double L) {
+    double R = g.radius, A = M_PI * R * R;
+    bool sphere = g.shape == Shape::Sphere;
+    double r_front = g.shape == Shape::Cylinder ? R : 0.0; // cone tips and sphere poles are points
+
+    // make cones pointy
+    if (b.n_seg++ == 0) {
+        b.front = g;
+        b.front_half_angle = g.shape == Shape::Cone ? atan(R / L) : M_PI / 2;
+    }
+
+    // potential lift
+    double x_joint = sphere ? b.x + 0.5 * L : b.x_joint;
+    double dA_joint = M_PI * (r_front * r_front - b.r_aft * b.r_aft);
+    double dA_cone = g.shape == Shape::Cone ? A : 0.0;
+    b.A_lift += dA_joint + dA_cone;
+    b.A_lift_x += dA_joint * x_joint + dA_cone * (b.x + (2.0 / 3.0) * L);
+
+    // viscous crossflow lift and skin friction
+    double plan = 0, x_plan = b.x + 0.5 * L;
+    switch (g.shape) {
+        case Shape::Cylinder:
+            plan = 2.0 * R * L;
+            b.A_wet += 2.0 * M_PI * R * L;
+            break;
+        case Shape::Cone:
+            plan = R * L;
+            x_plan = b.x + (2.0 / 3.0) * L;
+            b.A_wet += M_PI * R * sqrt(R * R + L * L);
+            break;
+        case Shape::Sphere:
+            plan = A;
+            b.A_wet += 4.0 * A;
+            break;
+    }
+    b.A_plan += plan;
+    b.A_plan_x += plan * x_plan;
+
+    b.R_max = std::max(b.R_max, R);
+    b.r_aft = sphere ? 0.0 : R;
+    b.x_joint = sphere ? x_joint : b.x + L;
+    b.x += L;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // pitch/yaw damping                                                                         //
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -214,7 +283,7 @@ static Vec3 damping_moment(const Vec3& w_rel, double rho, double diameter, doubl
  * @param q body orientation, rotates the body frame into ECI
  * @param w angular velocity, body frame (rad/s)
  * @param mass current total mass of the rocket (kg)
- * @param props rocket geometry, radius and nosecone length are used here
+ * @param props rocket geometry, the nosecone and each remaining stage's shape are used here
  * @return drag acceleration in ECI (m/s^2), also stored in drag_accel, and the aero moment about the CoM
  */
 KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props) {
@@ -223,18 +292,17 @@ KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, con
     double air_density, air_pressure, speed_of_sound, mu;
     atmosphere(r.mag() - planet::EARTH.radius, air_density, air_pressure, speed_of_sound, mu);
 
-    // calculate variables relating to the geometry of the craft
-    double diameter = 2.0 * props.radius;
-    double A_ref = (M_PI * diameter * diameter) / 4.0;
-    double A_front = 0.0; // nosecone tip
-    double A_back = A_ref;
-    double body_len = rocket_body_length();
-    double total_len = body_len + props.nosecone_length;
-    double A_planiform = 0.5 * diameter * props.nosecone_length + diameter * body_len;
-    double wetted_area_nose = M_PI * props.radius * sqrt(props.radius * props.radius + props.nosecone_length * props.nosecone_length);
-    double wetted_area_body = M_PI * diameter * body_len;
-    double A_wet = wetted_area_body + wetted_area_nose;
-    double nosecone_half_angle = atan((diameter / 2) / props.nosecone_length);
+    // move from tip to rear of the active stage
+    AeroBody body;
+    const Geometry nose = {Shape::Cone, props.stages.back().geometry.radius};
+    if (props.nosecone_length > 0) add_segment(body, nose, props.nosecone_length);
+    for (int i = num_stages() - 1; i >= active_idx; i--) add_segment(body, props.stages[i].geometry, props.stages[i].tip_to_end_length);
+
+    double diameter = 2.0 * body.R_max;
+    double A_ref = M_PI * body.R_max * body.R_max;
+    double A_front = M_PI * body.front.radius * body.front.radius;
+    double A_base = M_PI * body.r_aft * body.r_aft;
+    double total_len = body.x;
 
     // calculate speed, mach, reynolds num
     Vec3 wind_speed = surface_velocity_eci(r);
@@ -259,15 +327,26 @@ KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, con
     dyn_pressure = dynamic_pressure(air_density, speed);
     aoa = AoA;
 
+    // apply drag to sphere case
+    if (body.n_seg == 1 && body.front.shape == Shape::Sphere) {
+        double C_d = body.front.cd >= 0 ? body.front.cd : C_d_sphere(Mach);
+        drag_accel = rel_airspeed * (-axial_drag_force(dyn_pressure, A_ref, C_d) / (mass * speed));
+        z_cp = 0.5 * total_len;
+        Vec3 r_cp = {0, 0, z_cp - z_cm};
+        return {drag_accel, r_cp.cross(rotate_by_quat(q.conjugate(), drag_accel * mass))};
+    }
+
     // calculate normal drag acceleration magnitude
-    double C_N_cone = cone_C_N_subsonic(AoA, A_ref, A_front, A_back);
-    double C_N_body = C_N_lift_subsonic(AoA, A_planiform, A_ref);
-    double C_N = C_N_cone + C_N_body;
+    double C_N_pot = C_N_potential(AoA, A_ref, body.A_lift);
+    double C_N_body = C_N_lift_subsonic(AoA, body.A_plan, A_ref);
+    double C_N = C_N_pot + C_N_body;
     double a_N = normal_drag_force(dyn_pressure, A_ref, C_N) / mass;
 
     // calculat axial drag acceleration magnitude
     bool engine_burning = throttle > 0.0 && active_stage().m_fuel > 0.0;
-    double C_A = C_d_friction(Mach, Re, A_wet, A_ref, total_len, diameter) + C_d_wave_drag(nosecone_half_angle, Mach) + C_d_base_drag(Mach, engine_burning);
+    double C_A = C_d_friction(Mach, Re, body.A_wet, A_ref, total_len, diameter)
+               + C_d_wave_drag(body.front_half_angle, Mach) * (A_front / A_ref)
+               + C_d_base_drag(Mach, engine_burning) * (A_base / A_ref);
     double a_A = axial_drag_force(dyn_pressure, A_ref, C_A) / mass;
 
     // calculate the normal and axial acceleration vectors in ECI
@@ -278,7 +357,12 @@ KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, con
     Vec3 norm_a = v_perp_mag > 1e-9 ? v_perp * (-a_N / v_perp_mag) : Vec3{0, 0, 0};
 
     // center of pressure measured from the nose tip
-    double x_cp = C_N > 1e-12 ? X_CP(props.nosecone_length, body_len, C_N_cone, C_N_body) : (2.0 / 3.0) * props.nosecone_length;
+    double x_cp = 0.5 * total_len;
+    if (std::abs(C_N) > 1e-12) {
+        x_cp = (C_N_potential(AoA, A_ref, body.A_lift_x) + C_N_lift_subsonic(AoA, body.A_plan_x, A_ref)) / C_N;
+    } else if (std::abs(body.A_lift) > 1e-9) {
+        x_cp = body.A_lift_x / body.A_lift;
+    }
     z_cp = total_len - x_cp;
 
     Vec3 drag_a = norm_a + axial_a;

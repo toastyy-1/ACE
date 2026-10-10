@@ -19,7 +19,6 @@ rockets:
     arg_periapsis_deg: 0.0
     true_anomaly_deg: 0.0
 
-    radius: 0.835 # radius of the rocket (cylinder)
     nosecone_length: 3.0
     nosecone_mass: 100.0 # mass of the nosecone/payload on top of the last stage (kg)
     nosecone_com_distance: 2.0 # nosecone CoM back from the nose tip (m), defaults to 2/3 of nosecone_length if omitted
@@ -27,6 +26,9 @@ rockets:
 
     stage:
       - id: 1
+        geometry:
+          shape: cylinder # cylinder, cone, or sphere
+          radius: 0.835 # cylinder/sphere/cone base radius (m)
         dry_mass: 2292.0 # mass of empty stage
         fuel_mass: 20938.0 # mass of fuel
         length: 7.49 # from tip to tail of the stage
@@ -38,6 +40,9 @@ rockets:
         thrust_curve: stage1_thrust_curve.csv # thrust curve file path
 
       - id: 2
+        geometry:
+          shape: cylinder
+          radius: 0.835
         dry_mass: 795.0
         fuel_mass: 6237.0
         length: 4.12
@@ -49,6 +54,9 @@ rockets:
         thrust_curve: stage2_thrust_curve.csv
 
       - id: 3
+        geometry:
+          shape: cylinder
+          radius: 0.835
         dry_mass: 1100.0
         fuel_mass: 3306.0
         length: 6.59

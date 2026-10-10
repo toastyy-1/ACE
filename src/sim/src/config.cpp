@@ -105,13 +105,10 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
                           << " starting in orbit needs semi_major_axis_km > 0 and 0 <= eccentricity < 1\n";
             }
 
-            rocket.props.radius = value_or(rn, "radius", rocket.props.radius);
             rocket.props.nosecone_length = value_or(rn, "nosecone_length", rocket.props.nosecone_length);
             rocket.props.nosecone_mass = value_or(rn, "nosecone_mass", rocket.props.nosecone_mass);
-            // a thin walled cone's CoM sits 2/3 of the way back from the tip
             rocket.props.nosecone_com_distance = value_or(rn, "nosecone_com_distance", (2.0 / 3.0) * rocket.props.nosecone_length);
 
-            // stage count comes from however many stage entries this rocket defines
             bool has_stages = rn.is_mapping() && rn.contains("stage") && rn["stage"].is_sequence();
             if (!has_stages || rn["stage"].empty()) {
                 std::cerr << "config error: '" << path << "' rocket " << ri
@@ -133,6 +130,24 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
                     s.fuel_length           = value_or(st, "fuel_length", 0.0);
                     s.engine_distance       = value_or(st, "engine_distance", 0.0);
                     s.engine_gimball_range  = value_or(st, "gimbal_range_deg", 0.0);
+
+                    fkyaml::node geo = st.is_mapping() && st.contains("geometry") ? st["geometry"] : fkyaml::node();
+                    std::string shape = value_or(geo, "shape", std::string("cylinder"));
+                    s.geometry.radius = value_or(geo, "radius", 0.0);
+                    s.geometry.cd     = value_or(geo, "cd", s.geometry.cd);
+                    if (shape == "cone") {
+                        s.geometry.shape = Shape::Cone;
+                    } else if (shape == "sphere") {
+                        s.geometry.shape = Shape::Sphere;
+                        s.tip_to_end_length = 2.0 * s.geometry.radius;
+                    } else if (shape != "cylinder") {
+                        std::cerr << "config error: rocket " << ri << " stage " << si
+                                  << " geometry shape must be cylinder, cone, or sphere\n";
+                    }
+                    if (s.geometry.radius <= 0) {
+                        std::cerr << "config error: rocket " << ri << " stage " << si
+                                  << " geometry radius must be > 0\n";
+                    }
 
                     std::string curve_file = value_or(st, "thrust_curve", std::string());
                     if (curve_file.empty()) {
@@ -190,13 +205,12 @@ ThrustCurve load_thrust_curve(const std::string& path, const double total_initia
     ThrustCurve tc(total_initial_prop_mass_for_stage);
     std::string line;
     int line_num = 0;
-    bool header_allowed = true; // only the first non blank line can be a header
+    bool header_allowed = true;
 
     while (std::getline(file, line)) {
         line_num++;
         if (line.find_first_not_of(" \t\r") == std::string::npos) continue;
 
-        // exactly two numbers separated by a comma
         std::istringstream row(line);
         double t = 0, thrust = 0;
         char comma = 0;

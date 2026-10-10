@@ -81,8 +81,40 @@ class ThrustCurve {
     double prop_mass = 0;    // propellant the curve burns (kg)
 };
 
+enum class Shape { 
+    Cylinder, 
+    Cone, 
+    Sphere 
+};
+
+// outer shape of a stage
+struct Geometry {
+    Shape shape = Shape::Cylinder;
+    double radius = 0; // cylinder/sphere/cone case radius (m)
+    double cd = -1;    // this is for sphere becaues it uses sphere mach tale for cd
+
+    // moment of inertia per unit mass along the long axis of a uniform solid (m^2)
+    double axial_inertia() const {
+        switch (shape) {
+            case Shape::Cone:   return 0.3 * radius * radius;
+            case Shape::Sphere: return 0.4 * radius * radius;
+            default:            return 0.5 * radius * radius;
+        }
+    }
+
+    // moment of inertia per unit mass aklong a transverse axis through the centroid of a uniform solid (m^2)
+    double transverse_inertia(double length) const {
+        switch (shape) {
+            case Shape::Cone:   return 0.15 * radius * radius + 0.0375 * length * length;
+            case Shape::Sphere: return 0.4 * radius * radius;
+            default:            return (3.0 * radius * radius + length * length) / 12.0;
+        }
+    }
+};
+
 struct Stage {
     double id;
+    Geometry geometry;
     double m_dry;                   // dry mass
     double m_fuel;                  // fuel mass
     double m_fuel_full;             // fuel mass at ignition
@@ -117,11 +149,17 @@ struct Stage {
 
 // config and geometry of rocket whao
 struct RocketProps {
-    double radius = 0; // hull radius for the solid-cylinder inertia model (m)
-    double nosecone_length = 0;
+    double nosecone_length = 0; // the nosecone sits on the last stage and shares its radius
     double nosecone_mass = 0; // mass of the nosecone (kg)
     double nosecone_com_distance = 0; // nosecone CoM measured back from the nose tip (m)
     std::vector<Stage> stages;
+
+    // widest stage radius from stage `first` up to the nose (m)
+    double max_radius(int first = 0) const {
+        double R = 0;
+        for (size_t i = first; i < stages.size(); i++) R = std::max(R, stages[i].geometry.radius);
+        return R;
+    }
 };
 
 

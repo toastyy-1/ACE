@@ -70,7 +70,7 @@ RocketState Rocket::get_state() const {
     s.length      = length;
     s.cm_dist     = length - z_cm;
     s.engine_dist = length - s_engine;
-    s.radius      = props.radius;
+    s.radius      = props.max_radius(active_idx);
     s.nose_length = props.nosecone_length;
     s.has_engine  = active_stage().m_fuel_full > 0;
     s.init        = start_state;
@@ -188,7 +188,7 @@ bool Rocket::is_rocket_on_ground(double com_dist_from_gnd) {
                 -(rocket_length - z_cm) * cos_angle_to_gnd
                 )
 
-                + props.radius * sin_angle_to_gnd;
+                + props.max_radius(active_idx) * sin_angle_to_gnd;
         
         // check if any component along the rocket is touching the ground, 
         if (com_dist_from_gnd < rocket_height_component) {
@@ -236,8 +236,9 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     Vec3 r_contact_from_cm = {0, 0, cos_angle_to_gnd >= 0.0 ? -z_cm : rocket_body_length() + props.nosecone_length - z_cm};
     double sin_angle_to_gnd = std::sqrt(std::max(0.0, 1.0 - cos_angle_to_gnd * cos_angle_to_gnd));
     if (sin_angle_to_gnd > 0) {
-        r_contact_from_cm.x = -up_body.x * props.radius / sin_angle_to_gnd;
-        r_contact_from_cm.y = -up_body.y * props.radius / sin_angle_to_gnd;
+        double R = props.max_radius(active_idx);
+        r_contact_from_cm.x = -up_body.x * R / sin_angle_to_gnd;
+        r_contact_from_cm.y = -up_body.y * R / sin_angle_to_gnd;
     }
 
     // velocity of the contact point relative to the ground
@@ -488,24 +489,28 @@ void Rocket::update_mass() {
     m_fuel_current = M_f;
     z_cm = m_cm / M;
 
-    // also adjust moment using assumption that the structure and the propellant column are each uniform cylinders
-    double R2 = props.radius * props.radius, I_trans = 0;
+    // also adjust moment using assumption that the structure and the propellant column are each uniform solids
+    double I_trans = 0, I_axial = 0;
     base = 0;
     for (int i = active_idx; i < num_stages(); i++) {
         const Stage& st = props.stages[i];
+        const Geometry& g = st.geometry;
         double L = st.tip_to_end_length, L_f = st.fuel_length * st.fuel_fill();
         double d_dry = (base + L - st.dry_CoM()) - z_cm;
         double d_fuel = (base + L - st.fuel_CoM()) - z_cm;
-        I_trans += (1.0 / 12.0) * st.m_dry * (3.0 * R2 + L * L) + st.m_dry * d_dry * d_dry;
-        I_trans += (1.0 / 12.0) * st.m_fuel * (3.0 * R2 + L_f * L_f) + st.m_fuel * d_fuel * d_fuel;
+        I_trans += st.m_dry * (g.transverse_inertia(L) + d_dry * d_dry);
+        I_trans += st.m_fuel * (g.transverse_inertia(L_f) + d_fuel * d_fuel);
+        I_axial += (st.m_dry + st.m_fuel) * g.axial_inertia();
         base += L;
     }
 
     // nosecone is treated as a thin conical shell
+    double R2 = props.stages.back().geometry.radius * props.stages.back().geometry.radius;
     double h = props.nosecone_length, d_nose = z_nose - z_cm;
     I_trans += m_nose * (R2 / 4.0 + h * h / 18.0) + m_nose * d_nose * d_nose;
+    I_axial += 0.5 * R2 * m_nose;
 
-    I_body = { I_trans, I_trans, 0.5 * R2 * M };
+    I_body = { I_trans, I_trans, I_axial };
 }
 
 /**

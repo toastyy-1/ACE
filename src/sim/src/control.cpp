@@ -42,7 +42,7 @@ void Rocket::update_flight_controller(double current_time) {
         }
 
         fc_veh = std::make_unique<fc_vehicle>();
-        fc_veh->radius                = props.radius;
+        fc_veh->radius                = props.max_radius();
         fc_veh->nosecone_length       = props.nosecone_length;
         fc_veh->nosecone_mass         = props.nosecone_mass;
         fc_veh->nosecone_com_distance = props.nosecone_com_distance;
