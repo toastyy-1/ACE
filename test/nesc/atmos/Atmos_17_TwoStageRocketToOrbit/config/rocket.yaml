@@ -1,0 +1,45 @@
+# case 17: unguided two-stage rocket from the equator/prime meridian. APPROXIMATE: NESC launches it pitched
+# 55.22 deg toward the east with its own table based aero, here it leaves the pad vertically with the sim's
+# shape based drag model. config/fc_schedule.txt lights stage 1 at t = 0 and stage 2 at 134.17 s like NESC
+
+rockets:
+  - name: atmos_17
+    track_data: true
+    export_interval: 0.1
+
+    origin_lat: 0.0
+    origin_lon: 0.0
+
+    nosecone_length: 0.0
+    nosecone_mass: 4000.0 # payload on top of the second stage
+    nosecone_com_distance: 0.0
+
+    # two 3 m diameter solid boosters stacked, 35 m tall
+    stage:
+      - id: 1
+        geometry:
+          shape: cylinder
+          radius: 1.5
+        dry_mass: 35000.0
+        fuel_mass: 180000.0
+        length: 25.0
+        com_distance: 12.5
+        fuel_com_distance: 12.5
+        fuel_length: 25.0
+        engine_distance: 25.0
+        gimbal_range_deg: 0.0
+        thrust_curve: stage1_thrust.csv # 17 MN, Isp 360 s
+
+      - id: 2
+        geometry:
+          shape: cylinder
+          radius: 1.5
+        dry_mass: 15000.0
+        fuel_mass: 80000.0
+        length: 10.0
+        com_distance: 5.0
+        fuel_com_distance: 5.0
+        fuel_length: 10.0
+        engine_distance: 10.0
+        gimbal_range_deg: 0.0
+        thrust_curve: stage2_thrust.csv # 5 MN, Isp 390 s

@@ -1,0 +1,30 @@
+# case 6C: cylinder with 29,000 N for 93 s from t = 1,000 s out of the orbit plane. APPROXIMATE: the sim always includes J2 gravity, so the orbit drifts from NESC's inverse square one,
+# and the engine pushes along the nose, which starts prograde and stays inertially fixed, not along -y body
+# NESC gives the state in J2000, rotated here into the sim's ECI by the earth rotation angle at
+# 2007-11-20T00:00:00 (58.531202 deg), the same rotation the sim applies to the sun and moon
+
+rockets:
+  - name: orbit_06c
+    track_data: true
+    export_interval: 60.0
+
+    start_in_eci: true
+    eci_position_m: [-1426225.051089, 4159940.168814, 5139356.570000]
+    eci_velocity_m_s: [-6363.342072, -4023.253265, 1484.521489]
+
+    nosecone_length: 0.0
+    nosecone_mass: 0.0
+
+    # 12 m x 1 m, 1,000 kg uniform cylinder. a token amount of fuel lets the engine apply NESC's force
+    # without the mass changing
+    stage:
+      - id: 1
+        geometry:
+          shape: cylinder
+          radius: 0.5
+        dry_mass: 1000.0
+        fuel_mass: 0.001
+        length: 12.0
+        com_distance: 6.0
+        engine_distance: 12.0
+        thrust_curve: thrust.csv

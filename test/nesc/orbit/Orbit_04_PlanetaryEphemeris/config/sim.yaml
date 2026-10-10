@@ -1,0 +1,12 @@
+# NESC check-case, run from this case's folder (see test/nesc/run_nesc.py)
+
+time_step: 1.0  # seconds
+step_delay: 0.0
+max_time: 28800.0    # seconds
+
+moon_gravity: true
+sun_gravity: true
+drag: false
+
+ephemeris: ../../../../config/de440s.bsp
+epoch: "2007-11-20T00:00:00"

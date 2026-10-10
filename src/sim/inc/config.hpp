@@ -13,6 +13,8 @@ struct RocketEntry {
     double origin_lat = 0.0, origin_lon = 0.0;
     bool start_in_orbit = false; // start from orbit instead of origin_lat/origin_lon
     OrbitElements orbit;
+    bool start_in_eci = false; // start from eci_position/eci_velocity instead
+    Vec3 eci_position{0, 0, 0}, eci_velocity{0, 0, 0}; // m, m/s
     double target_lat = 0.0, target_lon = 0.0;
     RocketProps props;
 };
@@ -23,6 +25,7 @@ struct SimConfig {
     double max_time = 0.0; // seconds
     bool moon_gravity = true; 
     bool sun_gravity = true;
+    bool drag = true;
     std::string ephemeris = "config/de440s.bsp";
     std::string epoch = "2026-01-01T00:00:00";
 };

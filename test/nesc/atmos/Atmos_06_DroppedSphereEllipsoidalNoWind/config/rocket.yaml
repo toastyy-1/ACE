@@ -1,0 +1,27 @@
+# case 6: sphere with CD 0.1 dropped from 30,000 ft at rest over the equator/prime meridian
+# ECI is ECEF at t = 0, so lat 0 lon 0 lies on +x and the inertial velocity is the
+# earth relative velocity plus the earth's spin (w x r, w = 7.292115e-5 rad/s)
+
+rockets:
+  - name: atmos_06
+    track_data: true
+    export_interval: 0.1
+
+    start_in_eci: true
+    eci_position_m: [6387281.000000, 0.000000, 0.000000]
+    eci_velocity_m_s: [0.000000, 465.767876, 0.000000]
+
+    nosecone_length: 0.0
+    nosecone_mass: 0.0
+
+    # 1 slug, 6 in diameter cannonball
+    stage:
+      - id: 1
+        geometry:
+          shape: sphere
+          radius: 0.0762
+          cd: 0.1
+        dry_mass: 14.5939
+        fuel_mass: 0.0
+        com_distance: 0.0762
+        thrust_curve: ../../../zero_thrust.csv

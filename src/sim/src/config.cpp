@@ -30,6 +30,25 @@ static T value_or(const fkyaml::node& n, const char* key, T fallback) {
 }
 
 /**
+ * @brief reads a 3 element number list
+ * @param n mapping holding the list
+ * @param key list's key
+ * @param out set to the list if it's valid
+ * @return true if the key held 3 numbers
+ */
+static bool read_vec3(const fkyaml::node& n, const char* key, Vec3& out) {
+    if (!n.is_mapping() || !n.contains(key)) return false;
+    const fkyaml::node& l = n.at(key);
+    if (!l.is_sequence() || l.size() != 3) return false;
+    try {
+        out = {l[0].get_value<double>(), l[1].get_value<double>(), l[2].get_value<double>()};
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+/**
  * @brief parses a yaml file, printing the error if it can't
  * @param path yaml file to read
  * @return the root node, null if the file couldn't be parsed
@@ -59,6 +78,7 @@ SimConfig load_sim_config(const std::string& path) {
     cfg.max_time = value_or(root, "max_time", cfg.max_time);
     cfg.moon_gravity = value_or(root, "moon_gravity", cfg.moon_gravity);
     cfg.sun_gravity = value_or(root, "sun_gravity", cfg.sun_gravity);
+    cfg.drag = value_or(root, "drag", cfg.drag);
     cfg.ephemeris = value_or(root, "ephemeris", cfg.ephemeris);
     cfg.epoch = value_or(root, "epoch", cfg.epoch);
 
@@ -103,6 +123,18 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
             if (rocket.start_in_orbit && (rocket.orbit.semi_major_axis <= 0 || rocket.orbit.eccentricity < 0 || rocket.orbit.eccentricity >= 1)) {
                 std::cerr << "config error: '" << path << "' rocket " << ri
                           << " starting in orbit needs semi_major_axis_km > 0 and 0 <= eccentricity < 1\n";
+            }
+
+            rocket.start_in_eci = value_or(rn, "start_in_eci", false);
+            if (rocket.start_in_eci) {
+                bool ok = read_vec3(rn, "eci_position_m", rocket.eci_position) && read_vec3(rn, "eci_velocity_m_s", rocket.eci_velocity);
+                if (!ok || rocket.eci_position.mag() <= 0) {
+                    std::cerr << "config error: '" << path << "' rocket " << ri
+                              << " starting in eci needs 3 element eci_position_m (nonzero) and eci_velocity_m_s\n";
+                }
+                if (rocket.start_in_orbit) {
+                    std::cerr << "config error: '" << path << "' rocket " << ri << " can't set both start_in_orbit and start_in_eci\n";
+                }
             }
 
             rocket.props.nosecone_length = value_or(rn, "nosecone_length", rocket.props.nosecone_length);

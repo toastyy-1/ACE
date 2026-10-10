@@ -181,7 +181,8 @@ class Rocket {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     Rocket(const std::string& name, double origin_latitude, double origin_longitude, double target_latitude,
            double target_longitude, const RocketProps& props, bool track_data, double export_interval,
-           bool start_in_orbit, const OrbitElements& orbit, bool moon_gravity, bool sun_gravity, const Ephemeris* ephem);
+           bool start_in_orbit, const OrbitElements& orbit, bool start_in_eci, const Vec3& eci_position, const Vec3& eci_velocity,
+           bool moon_gravity, bool sun_gravity, bool drag, const Ephemeris* ephem);
     ~Rocket();
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -253,6 +254,9 @@ class Rocket {
     bool sun_gravity = false;
     const Ephemeris* ephem = nullptr;
 
+    // aerodynamic forces and torques
+    bool drag = true;
+
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // rocket static configuration                                                               //
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -316,6 +320,7 @@ class Rocket {
     // starting
     void set_start(double origin_latitude, double origin_longitude, double target_latitude, double target_longitude); // sets the starting and target position/attitude (only called from the constructor
     void set_start_orbit(const OrbitElements& orbit, double target_latitude, double target_longitude); // same as set_start, but starting in orbit
+    void set_start_eci(const Vec3& r_eci, const Vec3& v_eci, double target_latitude, double target_longitude); // sets the starting and target for ECI position and velocity
     
     // kinematic helpers
     void apply_ground_dynamics(const Vec3& I, double m_end, double dt);

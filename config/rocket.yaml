@@ -19,6 +19,10 @@ rockets:
     arg_periapsis_deg: 0.0
     true_anomaly_deg: 0.0
 
+    start_in_eci: false # if true, starts at this ECI state
+    eci_position_m: [6378137.0, 0.0, 0.0]
+    eci_velocity_m_s: [0.0, 465.1, 0.0]
+
     nosecone_length: 3.0
     nosecone_mass: 100.0 # mass of the nosecone/payload on top of the last stage (kg)
     nosecone_com_distance: 2.0 # nosecone CoM back from the nose tip (m), defaults to 2/3 of nosecone_length if omitted

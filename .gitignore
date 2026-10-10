@@ -4,6 +4,9 @@
 *.exe
 *.csv
 !config/**/*.csv
+!test/nesc/zero_thrust.csv
+!test/nesc/**/config/*.csv
+test/nesc/**/compare.png
 *.dds
 *.bin
 *.bsp

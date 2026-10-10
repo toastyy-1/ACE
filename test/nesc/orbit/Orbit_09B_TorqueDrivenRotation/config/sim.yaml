@@ -1,0 +1,9 @@
+# NESC check-case, run from this case's folder (see test/nesc/run_nesc.py)
+
+time_step: 1.0  # seconds
+step_delay: 0.0
+max_time: 28800.0    # seconds
+
+moon_gravity: false
+sun_gravity: false
+drag: false

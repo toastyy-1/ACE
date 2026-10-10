@@ -287,6 +287,10 @@ static Vec3 damping_moment(const Vec3& w_rel, double rho, double diameter, doubl
  * @return drag acceleration in ECI (m/s^2), also stored in drag_accel, and the aero moment about the CoM
  */
 KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props) {
+    if (!drag) {
+        drag_accel = {0, 0, 0};
+        return {{0, 0, 0}, {0, 0, 0}};
+    }
 
     // calculate the properties of the air
     double air_density, air_pressure, speed_of_sound, mu;

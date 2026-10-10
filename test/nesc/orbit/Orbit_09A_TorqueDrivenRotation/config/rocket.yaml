@@ -1,0 +1,29 @@
+# case 9A: ISS with 10 N-m about +x body from t = 1,000 to 2,000 s. APPROXIMATE: the sim always includes J2 gravity, so the orbit drifts from NESC's inverse square one, the attitude starts nose prograde without spin instead of NESC's LVLH attitude and rates,
+# and the sim can't apply an external torque
+# NESC gives the state in J2000, rotated here into the sim's ECI by the earth rotation angle at
+# 2007-11-20T00:00:00 (58.531202 deg), the same rotation the sim applies to the sun and moon
+
+rockets:
+  - name: orbit_09a
+    track_data: true
+    export_interval: 60.0
+
+    start_in_eci: true
+    eci_position_m: [-1426225.051089, 4159940.168814, 5139356.570000]
+    eci_velocity_m_s: [-6363.342072, -4023.253265, 1484.521489]
+
+    nosecone_length: 0.0
+    nosecone_mass: 0.0
+
+    # 400,000 kg ISS-like vehicle. its inertia comes from this shape, NESC's full inertia tensor can't be set
+    stage:
+      - id: 1
+        geometry:
+          shape: cylinder
+          radius: 10.0
+        dry_mass: 400000.0
+        fuel_mass: 0.0
+        length: 50.0
+        com_distance: 25.0
+        engine_distance: 50.0
+        thrust_curve: ../../../zero_thrust.csv
