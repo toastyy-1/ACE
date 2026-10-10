@@ -10,12 +10,14 @@
 // is reduced to its outline (FeatureEdges) and drawn "hidden-line": its
 // triangles are first filled in the background colour, pushed slightly back in
 // depth, so whatever is behind the surface is hidden and only its visible edges
-// show. Transparent meshes (plume, explosion) draw just their edges.
+// show. Transparent meshes (plume, explosion) draw just their edges. The shader
+// writes its own log-scale depth (see wire.cpp) so the Earth's horizon and an
+// 11 m rocket share one depth buffer.
 //
 // Resources and state go through rlgl; the only raw GL calls are the few GL 1.1
-// entry points rlgl doesn't wrap (line draws, 32-bit index draws, polygon
-// offset), which every platform's GL library exports. wire.cpp must not pull in
-// raylib.h: on Windows the GL header needs windows.h, which clashes with it.
+// entry points rlgl doesn't wrap (line draws and 32-bit index draws), which
+// every platform's GL library exports. wire.cpp must not pull in raylib.h: on
+// Windows the GL header needs windows.h, which clashes with it.
 
 namespace renderer::wire {
 
@@ -48,6 +50,10 @@ struct Shading {
     // travel, view space) glow by `heat` in [0, 1]. 0 = off.
     RVec3  heatDir { 0, 0, 1 };
     float  heat = 0.0f;
+    // Fade edges whose surface faces away from `eye` (view space) toward the
+    // horizon. Needs vertex normals that point out of the surface.
+    bool   grazeFade = false;
+    RVec3  eye { 0, 0, 0 };
 };
 
 class Pipeline {
@@ -84,13 +90,13 @@ private:
 
     unsigned prog_ = 0;
     int locMvp_ = -1, locModel_ = -1, locTint_ = -1, locFill_ = -1,
-        locHeat_ = -1;
+        locHeat_ = -1, locGraze_ = -1;
 
     Mode  mode_ = Mode::None;
     RMat4 viewProj_ = rmath::identity();
     float bg_[4] = { 0, 0, 0, 1 };
     // Last uniform values sent, so unchanged ones aren't re-sent every draw.
-    float tint_[4] = {}, fill_[4] = {}, heat_[4] = {};
+    float tint_[4] = {}, fill_[4] = {}, heat_[4] = {}, graze_[4] = {};
 };
 
 }

@@ -39,12 +39,22 @@ uniform mat4 matModel;
 uniform vec4 tint;
 uniform vec4 fillColor;   // a > 0: hidden-line fill, drawn in exactly this colour
 uniform vec4 heat;        // xyz: unit direction of travel (view), w: heating [0,1]
+uniform vec4 graze;       // xyz: eye (view), w > 0: fade edges seen edge-on
 out vec4 fragColor;
+out float depthM;
 void main() {
     gl_Position = mvp*vec4(vertexPosition, 1.0);
+    depthM = gl_Position.w*1000.0;
     if (fillColor.a > 0.0) { fragColor = fillColor; return; }
 
     vec4 c = vertexColor*tint;
+    if (graze.w > 0.0) {
+        // Lines seen near edge-on pack tighter than a pixel and crawl as the
+        // camera moves, so the surface grid fades toward the horizon.
+        vec3 n = normalize(mat3(matModel)*vertexNormal);
+        vec3 v = normalize(graze.xyz - (matModel*vec4(vertexPosition, 1.0)).xyz);
+        c.a *= mix(0.1, 1.0, smoothstep(0.01, 0.12, abs(dot(n, v))));
+    }
     if (heat.w > 0.0) {
         // Windward edges run from orange to near white as heating builds.
         vec3  n    = normalize(mat3(matModel)*vertexNormal);
@@ -55,10 +65,22 @@ void main() {
 }
 )";
 
+// Depth is written per pixel on a log scale (view distance in metres, out to
+// 1e11), so precision stays a fixed fraction of the distance from a rocket's
+// bolts to the far limb of the Earth. A hardware depth buffer cannot, with the
+// near plane tight on the rocket. Fills sit back by a slope-scaled bias so the
+// edges lying on them win.
 const char* kFS = R"(#version 330
 in vec4 fragColor;
+in float depthM;
+uniform vec4 fillColor;
 out vec4 finalColor;
-void main() { finalColor = fragColor; }
+void main() {
+    float d = max(depthM, 0.0);
+    if (fillColor.a > 0.0) d += d*2e-5 + fwidth(d);
+    gl_FragDepth = log2(1.0 + d)*(1.0/log2(1.0 + 1e11));
+    finalColor = fragColor;
+}
 )";
 
 // RMat4 and rlgl's Matrix are both column-major, but Matrix's fields are laid out
@@ -218,9 +240,10 @@ void Pipeline::Init() {
     locTint_  = rlGetLocationUniform(prog_, "tint");
     locFill_  = rlGetLocationUniform(prog_, "fillColor");
     locHeat_  = rlGetLocationUniform(prog_, "heat");
+    locGraze_ = rlGetLocationUniform(prog_, "graze");
 
     // Start the uniform caches off at "unset" so the first draw sends them.
-    for (float* c : { tint_, fill_, heat_ }) std::fill(c, c + 4, NAN);
+    for (float* c : { tint_, fill_, heat_, graze_ }) std::fill(c, c + 4, NAN);
 }
 
 void Pipeline::Shutdown() {
@@ -254,17 +277,10 @@ void Pipeline::NextFrame() {
 
 void Pipeline::use(Mode m) {
     if (mode_ == m) return;
-    // The fill draws two-sided (open shapes like the nozzle still hide what's
-    // behind them), pushed back so the edges lying on it pass the depth test.
-    if (mode_ == Mode::Fill) {
-        glDisable(GL_POLYGON_OFFSET_FILL);
-        rlEnableBackfaceCulling();
-    }
-    if (m == Mode::Fill) {
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(1.0f, 1.0f);
-        rlDisableBackfaceCulling();
-    }
+    // The fill draws two-sided: open shapes like the nozzle still hide what's
+    // behind them.
+    if (mode_ == Mode::Fill) rlEnableBackfaceCulling();
+    if (m == Mode::Fill) rlDisableBackfaceCulling();
     mode_ = m;
 }
 
@@ -281,6 +297,7 @@ void Pipeline::setShading(const Shading& s, bool fill) {
     setVec4(locFill_, fill_, 0, 0, 0, 0);
     setVec4(locTint_, tint_, s.tint.r / 255.0f, s.tint.g / 255.0f, s.tint.b / 255.0f, s.tint.a / 255.0f);
     setVec4(locHeat_, heat_, s.heatDir.x, s.heatDir.y, s.heatDir.z, s.heat);
+    setVec4(locGraze_, graze_, s.eye.x, s.eye.y, s.eye.z, s.grazeFade ? 1.0f : 0.0f);
 }
 
 void Pipeline::Fill(const GpuMesh& m, const RMat4& model) {

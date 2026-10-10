@@ -170,6 +170,8 @@ void WireEarth::Draw(wire::Pipeline& p, const EarthFrame& f, const RCamera& cam,
     for (size_t i = 0; i < chunks_.size(); ++i) p.Fill(chunkMesh(chunks_[i]), models_[i]);
     wire::Shading s;
     s.tint = theme::kGrid;
+    s.grazeFade = true;
+    s.eye = cam.position;
     for (size_t i = 0; i < chunks_.size(); ++i) p.Edges(chunkMesh(chunks_[i]), models_[i], s);
 
     evict();

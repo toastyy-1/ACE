@@ -103,7 +103,7 @@ void Coastline::Draw(wire::Pipeline& p, const EarthFrame& f) {
 
     // Lift the outlines clear of the globe's own surface, which is built from
     // chords and so sits a little inside the true sphere; more from further out,
-    // where the depth buffer is coarser.
+    // where the chunks (and their chords) are bigger.
     const double lift = 30.0 + alt * 1e-3;
     const RMat4 model = rmath::mul(f.model, rmath::scale((float)(1.0 + lift / planet::EARTH.radius)));
 
