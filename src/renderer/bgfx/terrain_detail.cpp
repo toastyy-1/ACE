@@ -1,6 +1,6 @@
 #include "terrain_detail.hpp"
 #include "bgfx_util.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -27,7 +27,7 @@ float fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
 float corner(int ix, int iy, float dx, float dy, int period, uint32_t seed) {
     int wx = ((ix % period) + period) % period;
     int wy = ((iy % period) + period) % period;
-    float ang = (float)(hashLattice(wx, wy, seed) & 0xffffu) * (float)(TAU / 65536.0);
+    float ang = (float)(hashLattice(wx, wy, seed) & 0xffffu) * (float)(consts::TAU / 65536.0);
     return std::cos(ang) * dx + std::sin(ang) * dy;
 }
 
@@ -86,7 +86,7 @@ float rockSignal(float u, float v) {
 float sandSignal(float u, float v) {
     float dunes  = fbm(u, v, 4, 5, 0.4f, 53u);
     float warp   = fbm(u, v, 4, 3, 0.5f, 59u);
-    float ripple = std::sin((float)TAU * (v * 48.0f + warp * 3.0f));
+    float ripple = std::sin((float)consts::TAU * (v * 48.0f + warp * 3.0f));
     return dunes + 0.05f * ripple;
 }
 

@@ -1,7 +1,7 @@
 #include "models.hpp"
 #include "theme.hpp"
 #include "../geometry.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
 #include <cmath>
 
 namespace renderer {
@@ -20,7 +20,7 @@ bool sameDims(const RocketDims& a, const RocketDims& b) {
 float clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 
 RVec3 along(const RVec3& p, const RVec3& dir, double metres) {
-    float k = (float)(metres * M_TO_KM);
+    float k = (float)(metres * consts::M_TO_KM);
     return { p.x + dir.x * k, p.y + dir.y * k, p.z + dir.z * k };
 }
 
@@ -169,7 +169,7 @@ void RocketModel::drawPlume(RenderBackend& b, const RocketFrame& f) const {
     const float t = (float)b.Time();
     auto cone = [&](double r0_m, double len_m, RColor c, float alpha, float spin) {
         RVec3 apex = along(f.nozzle, f.exhaust_dir, len_m);
-        RMat4 m = rmath::mul(rmath::orientCone(f.nozzle, apex, (float)(r0_m * M_TO_KM)), spinZ(t * spin));
+        RMat4 m = rmath::mul(rmath::orientCone(f.nozzle, apex, (float)(r0_m * consts::M_TO_KM)), spinZ(t * spin));
         b.DrawModel(cone_, m, glow(c, alpha * f.thrust));
     };
     cone(radius * 1.5,  Lm * 1.25, { 255, 110,  40, 255 }, 0.45f,  0.7f);   // outer haze
@@ -185,7 +185,7 @@ void RocketModel::drawPlume(RenderBackend& b, const RocketFrame& f) const {
         float dist = spacing * k;
         if (dist > Lm * 0.95) break;
         float fade = 1.0f - (float)(k - 1) / nD;
-        float sz   = (float)(radius * 0.45 * M_TO_KM) * (0.6f + 0.4f * fade);
+        float sz   = (float)(radius * 0.45 * consts::M_TO_KM) * (0.6f + 0.4f * fade);
         b.DrawModel(diamond_, rmath::placeSphere(along(f.nozzle, f.exhaust_dir, dist), sz),
                     glow({ 215, 230, 255, 255 }, f.air * f.thrust * fade));
     }
@@ -199,7 +199,7 @@ void RocketModel::drawDetonation(RenderBackend& b, const RocketFrame& f) const {
 
     // Concentric wire shells about the rocket's position, a few tens of metres
     // across (floored so small rockets still read), same timeline as bgfx.
-    const float Rmax = (float)(fmax(dims_.radius * 25.0, 30.0) * M_TO_KM);   // km
+    const float Rmax = (float)(fmax(dims_.radius * 25.0, 30.0) * consts::M_TO_KM);   // km
     auto shell = [&](float radiusKm, RColor c, float alpha) {
         if (alpha <= 0.002f || radiusKm <= 0.0f) return;
         b.DrawModel(shell_, rmath::placeSphere(f.center, radiusKm), glow(c, alpha));

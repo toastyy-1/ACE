@@ -24,7 +24,7 @@ double clampd(double v, double lo, double hi) {
 
 // convert a rocket state from ECI to the earth-fixed (ECEF) frame at its timestamp
 RocketState toEcef(RocketState s) {
-    double theta = EARTH_ROTATION_RATE * s.t;
+    double theta = planet::EARTH.rotation_rate * s.t;
     Quat qz = { std::cos(theta * 0.5), 0.0, 0.0, -std::sin(theta * 0.5) }; // Rz(-theta)
     s.r = eci_to_ecef(s.r, s.t);
     s.v = eci_to_ecef(s.v, s.t);
@@ -209,7 +209,7 @@ void Renderer::HandleInput() {
         pitch = clampf(pitch, -1.5f, 1.5f);  // avoid the straight-up/down singularity
     }
     if (in.wheel != 0.0f) dist *= powf(0.9f, in.wheel);
-    dist = clampf(dist, 0.02f, EARTH_RADIUS_KM * 50.0f);  // 20 m .. 50 Earth radii
+    dist = clampf(dist, 0.02f, planet::EARTH.radius_km() * 50.0f);  // 20 m .. 50 Earth radii
 
     // Free-fly: translate the orbit pivot along the camera's own axes. Speed
     // scales with the zoom distance (and FrameTime for frame-rate independence)
@@ -249,9 +249,9 @@ void Renderer::DrawFrame(const RCamera& cam) {
     // just past the planet so nothing useful is clipped while precision stays high.
     RVec3 earthC   = ToView({0, 0, 0});            // Earth centre == ECI origin
     float toEarth  = rvDist(cam.position, earthC);
-    float nearGeom = fminf(toEarth - EARTH_RADIUS_KM, dist - 0.02f);
+    float nearGeom = fminf(toEarth - planet::EARTH.radius_km(), dist - 0.02f);
     float nearP    = fmaxf(nearGeom * 0.5f, 0.001f);
-    float farP     = toEarth + 2.5f * EARTH_RADIUS_KM;
+    float farP     = toEarth + 2.5f * planet::EARTH.radius_km();
     backend_.SetClipPlanes(nearP, farP);
 
     backend_.BeginFrame(kBlack);
@@ -284,7 +284,7 @@ void Renderer::DrawEarth(const RCamera& cam, RVec3 earthC) {
     // Earth mesh is body-fixed (ECEF); the scene is rendered in that frame so the
     // globe and its surface markers stay put while rockets show their ground track.
     EarthFrame f;
-    f.model   = rmath::mul(rmath::translate(earthC), rmath::viewBasis((float)M_TO_KM));
+    f.model   = rmath::mul(rmath::translate(earthC), rmath::viewBasis((float)consts::M_TO_KM));
     f.sun_dir = sun;
     f.center  = earthC;
     f.cam_pos = cam.position;
@@ -316,7 +316,7 @@ void Renderer::DrawOneRocket(const RocketState& st, float thrustLevel, double de
 
     // Model matrices. viewBasis maps ECI metres -> view km (with the axis swap);
     // translate(ToView(st.r)) carries the (double-differenced) scene shift.
-    RMat4 V   = rmath::viewBasis((float)M_TO_KM);
+    RMat4 V   = rmath::viewBasis((float)consts::M_TO_KM);
     RMat4 pv  = rmath::translate(ToView(st.r));
     RMat4 Rqr = rmath::fromQuat(qr.w, qr.x, qr.y, qr.z);
     RMat4 Rqe = rmath::fromQuat(qe.w, qe.x, qe.y, qe.z);
@@ -335,7 +335,7 @@ void Renderer::DrawOneRocket(const RocketState& st, float thrustLevel, double de
     f.flick   = 0.82f + 0.12f*sinf(t*46.0f) + 0.06f*sinf(t*71.0f + 1.7f);
     // Atmospheric density factor (~8km scale height): drives Mach diamonds, which
     // only form in atmosphere (over/under-expanded nozzle), not in vacuum.
-    double altitude = st.r.mag() - EARTH_RADIUS;
+    double altitude = st.r.mag() - planet::EARTH.radius;
     f.air     = (float)exp(-fmax(altitude, 0.0) / 8000.0);
     // Aerodynamic heating ~ dynamic pressure (air * v^2): glows on ascent through
     // the dense atmosphere at speed and (much more) on reentry.
@@ -388,10 +388,10 @@ void Renderer::DrawPredictedTrajectory() const {
 
         // A bound orbit repeats after one period: stop there instead of drawing laps over each other.
         int    steps  = max_steps;
-        double energy = v.dot(v) / 2 - GM_EARTH / r.mag();
+        double energy = v.dot(v) / 2 - planet::EARTH.gm / r.mag();
         if (energy < 0) {
-            double sma = -GM_EARTH / (2 * energy);
-            steps = std::min(steps, (int)std::ceil(TAU * std::sqrt(sma * sma * sma / GM_EARTH) / dt));
+            double sma = -planet::EARTH.gm / (2 * energy);
+            steps = std::min(steps, (int)std::ceil(consts::TAU * std::sqrt(sma * sma * sma / planet::EARTH.gm) / dt));
         }
 
         RVec3 prev = ToView(states_[idx].r);
@@ -408,7 +408,7 @@ void Renderer::DrawPredictedTrajectory() const {
             path.push_back({ cur,  col });
             prev = cur;
 
-            if (r.mag() <= EARTH_RADIUS) break;      // reached the surface
+            if (r.mag() <= planet::EARTH.radius) break;      // reached the surface
         }
     }
     backend_.DrawLines(path.data(), path.size(), 2.0f);
@@ -462,7 +462,7 @@ void Renderer::DrawECIAxes() const {
     // ECI axes through the Earth's centre: X vernal equinox (red),
     // Y 90E equatorial (green), Z north pole (blue). The scene renders in the
     // earth-fixed frame, so carry the inertial axes into ECEF at the current time.
-    const double L = EARTH_RADIUS * 1.5;
+    const double L = planet::EARTH.radius * 1.5;
     double t = primaryState().t;
     auto ecefAxis = [&](Vec3 v) { return ToView(eci_to_ecef(v, t)); };
     LineVertex ax[6] = {
@@ -545,7 +545,7 @@ void Renderer::DrawSurfaceMarkers() const {
         double n = surf_eci.mag();
         if (n < 1e-6) return;
         Vec3  out     = surf_eci / n;                          // local vertical (ECI)
-        Vec3  tip_eci = surf_eci + out * (pinLen * KM_TO_M);   // lift the cap off the ground
+        Vec3  tip_eci = surf_eci + out * (pinLen * consts::KM_TO_M);   // lift the cap off the ground
         RVec3 baseW   = ToView(surf_eci);
         RVec3 tipW    = ToView(tip_eci);
         stalks.push_back({ baseW, c });
@@ -575,7 +575,7 @@ HudFrame Renderer::BuildHud() const {
         hr.detonated = i < detStart_.size() && detStart_[i] >= 0.0;
         hr.thrust    = i < thrustLvl_.size() ? thrustLvl_[i] : 0.0f;
         hr.length    = st.length;
-        hr.alt_km    = (rmag - EARTH_RADIUS) * M_TO_KM;
+        hr.alt_km    = (rmag - planet::EARTH.radius) * consts::M_TO_KM;
         hr.vspeed    = rmag > 1.0 ? st.v.dot(st.r / rmag) : 0.0;
         h.rockets.push_back(hr);
     }
@@ -587,25 +587,25 @@ HudFrame Renderer::BuildHud() const {
     h.met    = st.t;
     h.mass   = st.mass;
     h.fuel   = st.fuel;
-    h.pos_km = st.r * M_TO_KM;
-    h.alt_km = (rmag - EARTH_RADIUS) * M_TO_KM;
-    h.lat_deg = std::asin(clampd(up.z, -1.0, 1.0)) * RAD_TO_DEG;
-    h.lon_deg = std::atan2(up.y, up.x) * RAD_TO_DEG;
+    h.pos_km = st.r * consts::M_TO_KM;
+    h.alt_km = (rmag - planet::EARTH.radius) * consts::M_TO_KM;
+    h.lat_deg = std::asin(clampd(up.z, -1.0, 1.0)) * consts::RAD_TO_DEG;
+    h.lon_deg = std::atan2(up.y, up.x) * consts::RAD_TO_DEG;
     h.speed  = st.v.mag();
     h.vspeed = st.v.dot(up);
     h.accel  = st.a.mag();
 
     Vec3 tgt = st.init.target_r_ecef;
     if (tgt.mag() > 1.0)
-        h.target_range_km = std::atan2(up.cross(tgt).mag(), up.dot(tgt)) * EARTH_RADIUS * M_TO_KM;
+        h.target_range_km = std::atan2(up.cross(tgt).mag(), up.dot(tgt)) * planet::EARTH.radius * consts::M_TO_KM;
 
     Vec3 nose = qrot(st.q_rocket, {0, 0, 1});
-    h.pitch_deg  = std::asin(clampd(nose.dot(up), -1.0, 1.0)) * RAD_TO_DEG;
-    h.gimbal_deg = 2.0 * std::acos(clampd(st.q_engine.w, -1.0, 1.0)) * RAD_TO_DEG;
+    h.pitch_deg  = std::asin(clampd(nose.dot(up), -1.0, 1.0)) * consts::RAD_TO_DEG;
+    h.gimbal_deg = 2.0 * std::acos(clampd(st.q_engine.w, -1.0, 1.0)) * consts::RAD_TO_DEG;
     Vec3 nozzle  = qrot(st.q_engine, {0, 0, 1});   // thrust axis in the body frame
-    h.gimbal_x_deg = std::asin(clampd(nozzle.x, -1.0, 1.0)) * RAD_TO_DEG;
-    h.gimbal_y_deg = std::asin(clampd(nozzle.y, -1.0, 1.0)) * RAD_TO_DEG;
-    h.rates_dps  = st.w * RAD_TO_DEG;
+    h.gimbal_x_deg = std::asin(clampd(nozzle.x, -1.0, 1.0)) * consts::RAD_TO_DEG;
+    h.gimbal_y_deg = std::asin(clampd(nozzle.y, -1.0, 1.0)) * consts::RAD_TO_DEG;
+    h.rates_dps  = st.w * consts::RAD_TO_DEG;
 
     h.toggles = {
         { 1, "Trajectory",   showPredicted_ },
@@ -694,7 +694,7 @@ std::vector<std::string> Renderer::rocketIds() const {
         // Launch-origin latitude (stable for the whole flight) -> band -> letter.
         Vec3   o   = states_[i].init.origin_r_eci;
         double n   = o.mag();
-        double lat = n > 1e-6 ? std::asin(clampd(o.z / n, -1.0, 1.0)) * RAD_TO_DEG : 0.0;
+        double lat = n > 1e-6 ? std::asin(clampd(o.z / n, -1.0, 1.0)) * consts::RAD_TO_DEG : 0.0;
         int    b   = (int)std::floor((lat + 90.0) / 7.5);
         if (b < 0) b = 0; else if (b > 23) b = 23;
         int ord = ++bandCount[b];   // 1-based ordinal within the band

@@ -1,6 +1,7 @@
 #include "earth.hpp"
 #include "theme.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
+#include "../../planetary_constants.hpp"
 
 #include <cmath>
 
@@ -41,7 +42,7 @@ std::vector<uint32_t> borderLoop() {
 
 void WireEarth::Init() {
     TerrainLodParams p;
-    p.radius         = EARTH_RADIUS;
+    p.radius         = planet::EARTH.radius;
     p.max_elevation  = 0.0;
     p.min_level      = 1;
     p.max_level      = kMaxLevel;
@@ -103,7 +104,7 @@ const wire::GpuMesh& WireEarth::chunkMesh(const TerrainChunk& c) {
     // millimetre at any level. Normals point straight up (the body-frame dir).
     Vec3 F, A, B;
     TerrainLod::FaceBasis(c.face, F, A, B);
-    const double R      = EARTH_RADIUS;
+    const double R      = planet::EARTH.radius;
     const Vec3   anchor = c.dir * R;
     Vec3 dirs[(kGrid + 1) * (kGrid + 1)];
     for (int i = 0; i <= kGrid; ++i) {
@@ -150,18 +151,18 @@ void WireEarth::Draw(wire::Pipeline& p, const EarthFrame& f, const RCamera& cam,
     Vec3 fwdView = { cam.target.x - cam.position.x, cam.target.y - cam.position.y,
                      cam.target.z - cam.position.z };
     TerrainLodCamera lc;
-    lc.pos = viewToBody(camView - f.center_km) * KM_TO_M;
+    lc.pos = viewToBody(camView - f.center_km) * consts::KM_TO_M;
     lc.fwd = viewToBody(fwdView).unit();
-    double tanH  = std::tan(cam.fovy * 0.5 * DEG_TO_RAD);
+    double tanH  = std::tan(cam.fovy * 0.5 * consts::DEG_TO_RAD);
     lc.cone_half = std::atan(tanH * std::sqrt(1.0 + (double)aspect * aspect));
     lod_.Select(lc, chunks_);
 
     // Each chunk is placed by its centre in view space, differenced in double
     // (the float view-space Earth centre is only good to ~0.5 m).
-    const RMat4 basis = rmath::viewBasis((float)M_TO_KM);
+    const RMat4 basis = rmath::viewBasis((float)consts::M_TO_KM);
     models_.clear();
     for (const TerrainChunk& c : chunks_) {
-        Vec3 o = f.center_km + bodyToView(c.dir * EARTH_RADIUS) * M_TO_KM;
+        Vec3 o = f.center_km + bodyToView(c.dir * planet::EARTH.radius) * consts::M_TO_KM;
         models_.push_back(rmath::mul(rmath::translate({ (float)o.x, (float)o.y, (float)o.z }), basis));
     }
 

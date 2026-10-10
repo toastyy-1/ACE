@@ -2,7 +2,8 @@
 #include "bgfx_util.hpp"
 #include "earth_bump_map.hpp"
 #include "../geometry.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
+#include "../../planetary_constants.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -55,7 +56,7 @@ void Terrain::Init(const bgfx::VertexLayout& layout) {
     if (bgfx::isValid(prog_)) return;
 
     TerrainLodParams p;
-    p.radius        = EARTH_RADIUS;
+    p.radius        = planet::EARTH.radius;
     p.max_elevation = EarthBumpMap::kMaxElevation;
     p.max_level     = kMaxLevel;
     lod_.Configure(p);
@@ -115,14 +116,14 @@ void Terrain::Draw(const EarthFrame& f, const RCamera& cam, float aspect, float 
     Vec3 fwdView = { cam.target.x - cam.position.x, cam.target.y - cam.position.y,
                      cam.target.z - cam.position.z };
     TerrainLodCamera lc;
-    lc.pos = viewToBody(camView - f.center_km) * KM_TO_M;
+    lc.pos = viewToBody(camView - f.center_km) * consts::KM_TO_M;
     lc.fwd = viewToBody(fwdView).unit();
-    double tanH  = std::tan(cam.fovy * 0.5 * DEG_TO_RAD);
+    double tanH  = std::tan(cam.fovy * 0.5 * consts::DEG_TO_RAD);
     lc.cone_half = std::atan(tanH * std::sqrt(1.0 + (double)aspect * aspect));
     lod_.Select(lc, chunks_);
 
     // The height map's texel size sets each chunk's sampling mip.
-    const double texel_m = TAU * R / bump_w;
+    const double texel_m = consts::TAU * R / bump_w;
 
     for (const TerrainChunk& c : chunks_) {
         setVec4(u_depth_, far_plane, 0, 0, 0);
@@ -137,11 +138,11 @@ void Terrain::Draw(const EarthFrame& f, const RCamera& cam, float aspect, float 
         // Floating origin: the sea-level centre in view space, from doubles. The
         // shader only adds small offsets to it.
         Vec3 anchor_m = c.dir * R;
-        Vec3 origin   = f.center_km + bodyToView(anchor_m) * M_TO_KM;
+        Vec3 origin   = f.center_km + bodyToView(anchor_m) * consts::M_TO_KM;
 
         // Height-map texel under the centre (same convention as EarthBumpMap),
         // split into integer + fraction so the shader's bilinear stays exact.
-        double u     = std::atan2(c.dir.y, c.dir.x) / TAU + 0.5;
+        double u     = std::atan2(c.dir.y, c.dir.x) / consts::TAU + 0.5;
         double colat = std::atan2(std::hypot(c.dir.x, c.dir.y), c.dir.z);
         double tx = u * bump_w, ty = colat / M_PI * bump_h;
         double ix = std::floor(tx), iy = std::floor(ty);

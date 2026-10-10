@@ -1,6 +1,7 @@
 #include "coastline.hpp"
 #include "theme.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
+#include "../../planetary_constants.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -28,7 +29,7 @@ constexpr double kFadeHigh = 50e3;
 // ECEF unit vector for a longitude/latitude in degrees (same convention as the
 // sim's lat_lon_to_ecef).
 Vec3 unitFromLonLat(double lon_deg, double lat_deg) {
-    double lon = lon_deg * DEG_TO_RAD, lat = lat_deg * DEG_TO_RAD;
+    double lon = lon_deg * consts::DEG_TO_RAD, lat = lat_deg * consts::DEG_TO_RAD;
     return { std::cos(lat) * std::cos(lon), std::cos(lat) * std::sin(lon), std::sin(lat) };
 }
 
@@ -54,7 +55,7 @@ void Coastline::Init() {
     std::vector<Vertex>   verts;
     std::vector<uint32_t> lines;
     auto vertex = [&](const Vec3& dir) {
-        Vec3 p = dir * EARTH_RADIUS;
+        Vec3 p = dir * planet::EARTH.radius;
         verts.push_back({ { (float)p.x, (float)p.y, (float)p.z },
                           { (float)dir.x, (float)dir.y, (float)dir.z }, 0, 0, kWhite });
         return (uint32_t)(verts.size() - 1);
@@ -73,7 +74,7 @@ void Coastline::Init() {
 
             // Split along the great circle (slerp) into pieces of <= kMaxSegment.
             double ang    = std::atan2(prev.cross(dir).mag(), prev.dot(dir));
-            int    pieces = std::max(1, (int)std::ceil(ang * EARTH_RADIUS / kMaxSegment));
+            int    pieces = std::max(1, (int)std::ceil(ang * planet::EARTH.radius / kMaxSegment));
             for (int k = 1; k <= pieces; ++k) {
                 double t = (double)k / pieces;
                 Vec3 d = ang < 1e-9 ? dir
@@ -96,7 +97,7 @@ void Coastline::Draw(wire::Pipeline& p, const EarthFrame& f) {
     if (!mesh_.vao) return;
 
     const Vec3   eye = { f.cam_pos.x, f.cam_pos.y, f.cam_pos.z };
-    const double alt = ((eye - f.center_km).mag() * KM_TO_M) - EARTH_RADIUS;
+    const double alt = ((eye - f.center_km).mag() * consts::KM_TO_M) - planet::EARTH.radius;
     const double fade = std::clamp((alt - kFadeLow) / (kFadeHigh - kFadeLow), 0.0, 1.0);
     if (fade <= 0.0) return;
 
@@ -104,7 +105,7 @@ void Coastline::Draw(wire::Pipeline& p, const EarthFrame& f) {
     // chords and so sits a little inside the true sphere; more from further out,
     // where the depth buffer is coarser.
     const double lift = 30.0 + alt * 1e-3;
-    const RMat4 model = rmath::mul(f.model, rmath::scale((float)(1.0 + lift / EARTH_RADIUS)));
+    const RMat4 model = rmath::mul(f.model, rmath::scale((float)(1.0 + lift / planet::EARTH.radius)));
 
     wire::Shading s;
     s.tint = theme::withAlpha(theme::kCoast, (unsigned char)(fade * 255.0));

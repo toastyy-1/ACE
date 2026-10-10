@@ -12,7 +12,7 @@
 #include "bgfx_backend.hpp"
 #include "bgfx_util.hpp"
 #include "../geometry.hpp"
-#include "../../constants.hpp"
+#include "../../planetary_constants.hpp"
 
 #include <bgfx/platform.h>
 #include <bx/math.h>
@@ -470,7 +470,7 @@ void BgfxBackend::DrawModel(MeshHandle h, const RMat4& model, const Material& ma
     }
     if (mat.lit) {
         // Earth params + textures for the rocket's analytic reflection + earthshine.
-        float e[4] = { earthCenterView_.x, earthCenterView_.y, earthCenterView_.z, (float)EARTH_RADIUS_KM };
+        float e[4] = { earthCenterView_.x, earthCenterView_.y, earthCenterView_.z, (float)planet::EARTH.radius_km() };
         bgfx::setUniform(u_earth_, e);
         bgfx::setTexture(0, s_color_, bgfx::isValid(earthColor_) ? earthColor_ : white_);
         bgfx::setTexture(1, s_night_, bgfx::isValid(earthNight_) ? earthNight_ : white_);
@@ -556,7 +556,7 @@ void BgfxBackend::ensureEarth() {
 
     // Sphere for the cloud shells. Denser than a plain textured sphere would need
     // so the per-vertex noise displacement resolves smoothly. 32-bit indices.
-    cloudMesh_  = CreateMesh(geom::buildSphere((float)EARTH_RADIUS, 512, 512, kLonOffset));
+    cloudMesh_  = CreateMesh(geom::buildSphere((float)planet::EARTH.radius, 512, 512, kLonOffset));
 
     // The solid surface at every altitude: quadtree LOD terrain (see terrain.hpp).
     terrain_.Init(layout_);
@@ -588,7 +588,7 @@ void BgfxBackend::DrawEarth(const EarthFrame& f) {
         // x: planet radius, y: atmosphere radius, z: scale height, w: exposure (km).
         // y: Kármán line (~100 km). z: Rayleigh scale height (~8.5 km). w: exposure
         // (raised to compensate for the thinner, denser-falloff air column).
-        float at[4] = { (float)EARTH_RADIUS_KM, (float)EARTH_RADIUS_KM + 100.0f, 8.5f, 0.05f };
+        float at[4] = { (float)planet::EARTH.radius_km(), (float)planet::EARTH.radius_km() + 100.0f, 8.5f, 0.05f };
         bgfx::setUniform(u_atmos_, at);
         setVec4(u_rayFwd_, fwd);
         float rr[4] = { right.x*tanH*aspect, right.y*tanH*aspect, right.z*tanH*aspect, 0 };
@@ -611,7 +611,7 @@ void BgfxBackend::DrawEarth(const EarthFrame& f) {
 
     // Camera altitude (km), for fading the cloud shells below.
     float dcx = f.cam_pos.x - f.center.x, dcy = f.cam_pos.y - f.center.y, dcz = f.cam_pos.z - f.center.z;
-    float camAlt = sqrtf(dcx*dcx + dcy*dcy + dcz*dcz) - (float)EARTH_RADIUS_KM;
+    float camAlt = sqrtf(dcx*dcx + dcy*dcy + dcz*dcz) - (float)planet::EARTH.radius_km();
 
     // Solid surface: quadtree LOD chunks from orbit down to the ground, with
     // distance-tiered detail texturing up close. See terrain.hpp.
@@ -648,7 +648,7 @@ void BgfxBackend::DrawEarth(const EarthFrame& f) {
         const float dispAmp    = 3000.0f; // noise amplitude (m); ~> gap so shells merge
         const float dispFreq   = 10.0f;    // noise feature scale over the sphere
         for (int i = 0; i < kShells; ++i) {
-            float factor = 1.0f + ((baseKm + i * gapKm) * 1000.0f) / (float)EARTH_RADIUS;
+            float factor = 1.0f + ((baseKm + i * gapKm) * 1000.0f) / (float)planet::EARTH.radius;
             RMat4 m = rmath::mul(f.model, rmath::scale(factor));
             setVec4(u_sunDir_, f.sun_dir);
             setVec4(u_earthCenter_, f.center);
@@ -692,7 +692,7 @@ void BgfxBackend::DrawEarth(const EarthFrame& f) {
             float dC  = rmath::length(toC);
             float cosA = dC > 1e-3f ? rmath::dot(S, RVec3{ toC.x/dC, toC.y/dC, toC.z/dC }) : -1.0f;
             float sunAng   = acosf(fmaxf(-1.0f, fminf(1.0f, cosA)));
-            float earthAng = asinf(fminf(1.0f, (float)EARTH_RADIUS_KM / fmaxf(dC, (float)EARTH_RADIUS_KM)));
+            float earthAng = asinf(fminf(1.0f, (float)planet::EARTH.radius_km() / fmaxf(dC, (float)planet::EARTH.radius_km())));
             float occ      = smooth01(earthAng * 0.95f, earthAng * 1.10f, sunAng);
             float edge     = fmaxf(fabsf(nx), fabsf(ny));
             float onScreen = 1.0f - smooth01(1.3f, 2.4f, edge);

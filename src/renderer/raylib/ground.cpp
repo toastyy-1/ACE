@@ -1,6 +1,7 @@
 #include "ground.hpp"
 #include "theme.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
+#include "../../planetary_constants.hpp"
 #include <cmath>
 #include <cstdio>
 
@@ -20,7 +21,7 @@ void GroundMarks::Draw(RenderBackend& b, const EarthFrame& f, const RCamera& cam
     lines_.clear();
 
     // All in view km, in double: the ground is ~6400 km from the view origin.
-    const double R    = EARTH_RADIUS * M_TO_KM;
+    const double R    = planet::EARTH.radius * consts::M_TO_KM;
     const Vec3   C    = f.center_km;
     const double cmag = C.mag();
     if (cmag < R * 0.5) return;               // no rocket yet: the scene is centred on the Earth
@@ -39,7 +40,7 @@ void GroundMarks::Draw(RenderBackend& b, const EarthFrame& f, const RCamera& cam
     const Vec3 fwd = (toD(cam.target) - eye).unit();
     const Vec3 fh  = fwd - up * fwd.dot(up);
     if (fh.mag() > 1e-6) {
-        headingDeg_  = std::fmod(std::atan2(fh.dot(east), fh.dot(north)) * RAD_TO_DEG + 360.0, 360.0);
+        headingDeg_  = std::fmod(std::atan2(fh.dot(east), fh.dot(north)) * consts::RAD_TO_DEG + 360.0, 360.0);
         haveHeading_ = true;
     }
 

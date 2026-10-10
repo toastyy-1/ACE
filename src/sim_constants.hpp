@@ -5,6 +5,8 @@
 
 #include <cmath>
 
+namespace consts {
+
 // GLOBAL TIME STEP FOR SIMULATION AND SUCH THINGS (overwritten by config)
 inline double STEP_DELAY = 0.001;
 inline double TIME_STEP = 0.01; // seconds
@@ -22,16 +24,6 @@ constexpr double p_b  = 1.2250;
 constexpr double p_sl = 101325.0;
 constexpr double GROUND_FRICTION_COEFF = 0.8;
 
-// WGS84
-constexpr double EARTH_RADIUS         = 6378137.0;
-constexpr double EARTH_RADIUS_KM      = 6378.137;
-constexpr double EARTH_ROTATION_RATE  = 7.292115e-5;
-constexpr double GM_EARTH             = 3.986004418e14;
-constexpr double EARTH_MASS           = GM_EARTH / G;
-
-// Gravity
-constexpr double J2 = 1.08262668355e-3;
-
 // Rendering
 constexpr float SIM_TO_RENDER = 0.001f;
 
@@ -46,3 +38,5 @@ constexpr double LBF_TO_N  = 4.4482216152605;
 constexpr double N_TO_LBF  = 1.0 / 4.4482216152605;
 constexpr double KG_TO_LBM = 2.2046226218487758;
 constexpr double LBM_TO_KG = 1.0 / 2.2046226218487758;
+
+}

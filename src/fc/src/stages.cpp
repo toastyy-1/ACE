@@ -20,7 +20,7 @@ void FlightController::s1_powered() {
     // do initial turn towards target before gravity turn starts
     ///////////////////////////////////////////////////////////////////////////
     constexpr double init_turn_len = 20.0; // seconds
-    constexpr double init_tilt_angle = 18.0 * DEG_TO_RAD;
+    constexpr double init_tilt_angle = 18.0 * consts::DEG_TO_RAD;
 
     if (dt < init_turn_len) {
         Vec3 up = cs.r.unit();
@@ -89,7 +89,7 @@ static double lambert_y(double z, double r_norm, double r_t_norm, double A) {
 // time of flight error at a given z
 static double lambert_F(double z, double r_norm, double r_t_norm, double A, double tff) {
     double y = lambert_y(z, r_norm, r_t_norm, A);
-    return pow(y / Cz(z), 1.5) * Sz(z) + A * sqrt(y) - sqrt(GM_EARTH) * tff;
+    return pow(y / Cz(z), 1.5) * Sz(z) + A * sqrt(y) - sqrt(planet::EARTH.gm) * tff;
 }
 
 // lambert problem (determine velocity vector that reaches target in time tff given current position)
@@ -133,7 +133,7 @@ static Vec3 lambert(Vec3 r, Vec3 r_t, double tff) {
     // now we determine the lagrange multipliers as part of the analytical version of the lambert problem to find our required velocity vector
     double y = lambert_y(z, r_norm, r_t_norm, A);
     double f = 1 - y / r_norm;
-    double g = A * sqrt(y / GM_EARTH);
+    double g = A * sqrt(y / planet::EARTH.gm);
 
     return (r_t - r * f) * (1 / g); // optimal taret velocity
 }
@@ -250,7 +250,7 @@ void FlightController::payload_deploy() {
     Vec3 n = { .x = 2 * q_err.x, .y = 2 * q_err.y, .z = 2 * q_err.z };
 
     // burn is ready once the attitude error has gotten low enough so engins is not lit while the rocket is still wobbling around
-    constexpr double attitude_tolerance = 0.5 * DEG_TO_RAD; // rad
+    constexpr double attitude_tolerance = 0.5 * consts::DEG_TO_RAD; // rad
     bool burn_ready = n.mag() < attitude_tolerance;
     if (burn_ready) { cs.light_engine_flag = true; }
 

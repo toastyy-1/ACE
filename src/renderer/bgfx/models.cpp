@@ -1,6 +1,6 @@
 #include "models.hpp"
 #include "../geometry.hpp"
-#include "../../constants.hpp"
+#include "../../sim_constants.hpp"
 #include <vector>
 #include <cmath>
 
@@ -22,7 +22,7 @@ void appendBell(Mesh& m, float zT, float zE, float rT, float rE,
         float Ro = rT + (rE - rT) * powf(t, 1.5f);
         float dRodz = (zE != zT) ? ((rE - rT) * 1.5f * powf(fmaxf(t,1e-4f), 0.5f)) / (zE - zT) : 0.0f;
         for (int j = 0; j <= sides; ++j) {
-            float th = (float)(TAU * j / sides), cs = cosf(th), sn = sinf(th);
+            float th = (float)(consts::TAU * j / sides), cs = cosf(th), sn = sinf(th);
             float mod = 1.0f + amp * cosf(ribs * th);
             float R   = Ro * mod;
             float dRdth = Ro * (-amp * ribs * sinf(ribs * th));
@@ -162,11 +162,11 @@ void RocketModel::Draw(RenderBackend& b, const RocketFrame& f) const {
     const double Lm     = dims_.length * 0.8 * f.thrust * f.flick;  // plume length, metres
     auto cone = [&](double r0_m, double len_m, RColor c) {
         c.a = (unsigned char)(c.a * f.thrust);
-        RVec3 apex = { f.nozzle.x + f.exhaust_dir.x * (float)(len_m * M_TO_KM),
-                       f.nozzle.y + f.exhaust_dir.y * (float)(len_m * M_TO_KM),
-                       f.nozzle.z + f.exhaust_dir.z * (float)(len_m * M_TO_KM) };
+        RVec3 apex = { f.nozzle.x + f.exhaust_dir.x * (float)(len_m * consts::M_TO_KM),
+                       f.nozzle.y + f.exhaust_dir.y * (float)(len_m * consts::M_TO_KM),
+                       f.nozzle.z + f.exhaust_dir.z * (float)(len_m * consts::M_TO_KM) };
         Material m; m.color = c; m.blend = BlendMode::Additive; m.depth_write = false;
-        b.DrawModel(cone_, rmath::orientCone(f.nozzle, apex, (float)(r0_m * M_TO_KM)), m);
+        b.DrawModel(cone_, rmath::orientCone(f.nozzle, apex, (float)(r0_m * consts::M_TO_KM)), m);
     };
     cone(radius * 1.5,  Lm * 1.25, { 180,  70, 20,  90 });   // outer haze
     cone(radius * 1.0,  Lm,        { 255, 140, 40, 140 });   // flame body
@@ -184,10 +184,10 @@ void RocketModel::Draw(RenderBackend& b, const RocketFrame& f) const {
             if (dist > Lm * 0.95) break;
             float fade = 1.0f - (float)(k - 1) / nD;
             float br   = f.air * f.thrust * fade;
-            RVec3 c = { f.nozzle.x + f.exhaust_dir.x * (float)(dist * M_TO_KM),
-                        f.nozzle.y + f.exhaust_dir.y * (float)(dist * M_TO_KM),
-                        f.nozzle.z + f.exhaust_dir.z * (float)(dist * M_TO_KM) };
-            float sz = (float)(radius * 0.45 * M_TO_KM) * (0.6f + 0.4f * fade);
+            RVec3 c = { f.nozzle.x + f.exhaust_dir.x * (float)(dist * consts::M_TO_KM),
+                        f.nozzle.y + f.exhaust_dir.y * (float)(dist * consts::M_TO_KM),
+                        f.nozzle.z + f.exhaust_dir.z * (float)(dist * consts::M_TO_KM) };
+            float sz = (float)(radius * 0.45 * consts::M_TO_KM) * (0.6f + 0.4f * fade);
             Material d;
             d.color = { 215, 230, 255, (unsigned char)(220.0f * br) };
             d.blend = BlendMode::Additive; d.depth_write = false;
@@ -196,7 +196,7 @@ void RocketModel::Draw(RenderBackend& b, const RocketFrame& f) const {
     }
 
     // Nozzle glow.
-    const float radiusW = (float)(radius * M_TO_KM);
+    const float radiusW = (float)(radius * consts::M_TO_KM);
     Material g;
     g.color = { 255, 190, 90, (unsigned char)(150 * f.thrust) };
     g.blend = BlendMode::Additive; g.depth_write = false;
@@ -215,7 +215,7 @@ void RocketModel::drawDetonation(RenderBackend& b, const RocketFrame& f) const {
     // layers are additive glow spheres about the rocket's view-space position,
     // depth-tested but not depth-writing (so the Earth occludes them and the layers
     // blend through each other), exactly like the plume.
-    const float Rmax  = (float)(fmax(dims_.radius * 25.0, 30.0) * M_TO_KM);  // km
+    const float Rmax  = (float)(fmax(dims_.radius * 25.0, 30.0) * consts::M_TO_KM);  // km
     const RVec3 c     = f.center;
     const float flick = f.flick;        // reuse the plume's flame flicker for turbulence
 

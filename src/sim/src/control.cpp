@@ -28,7 +28,7 @@ void Rocket::update_flight_controller(double current_time) {
             fs.id                      = static_cast<int>(s.id);
             fs.m_dry                   = s.m_dry;
             fs.m_fuel                  = s.m_fuel_full;
-            fs.isp                     = s.exhaust_velocity() / g0;
+            fs.isp                     = s.exhaust_velocity() / consts::g0;
             fs.isp_sea_level           = 0.0;
             fs.tip_to_end_length       = s.tip_to_end_length;
             fs.CoM_dist                = s.CoM_dist;
@@ -51,7 +51,7 @@ void Rocket::update_flight_controller(double current_time) {
         fc_veh->r_origin_eci          = start_state.origin_r_eci;
         fc_veh->q_origin_eci          = start_state.origin_q_eci;
         fc_veh->r_target_ecef         = start_state.target_r_ecef;
-        fc_veh->time_step             = TIME_STEP;
+        fc_veh->time_step             = consts::TIME_STEP;
 
         fc.reset(fc_init(fc_veh.get()));
         fc_cmd = {};

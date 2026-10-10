@@ -1,6 +1,6 @@
 #pragma once
 #include "render_backend.hpp"
-#include "../constants.hpp"
+#include "../sim_constants.hpp"
 #include "../types.hpp"
 #include "../sim/inc/rocket.hpp"   // RocketState (returned by primaryState / sim::get_state)
 #include <vector>
@@ -77,7 +77,7 @@ private:
     // precision at planet scale (the terrain's chunk anchors).
     Vec3 ToViewKm(const Vec3& eci_m) const {
         Vec3 d = eci_m - p_ref_eci_;
-        return { d.x * M_TO_KM, d.z * M_TO_KM, -d.y * M_TO_KM };
+        return { d.x * consts::M_TO_KM, d.z * consts::M_TO_KM, -d.y * consts::M_TO_KM };
     }
 
     // The scene is shifted so this point (the primary rocket's ECI position) sits

@@ -68,7 +68,7 @@ double ThrustCurve::impulse(double t0, double t1) const {
  */
 double ThrustCurve::isp() const {
     if (prop_mass <= 0) return 0.0;
-    return impulse(0.0, end_time()) / (prop_mass * g0);
+    return impulse(0.0, end_time()) / (prop_mass * consts::g0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

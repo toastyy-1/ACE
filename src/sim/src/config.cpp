@@ -57,6 +57,8 @@ SimConfig load_sim_config(const std::string& path) {
     cfg.time_step = value_or(root, "time_step", cfg.time_step);
     cfg.step_delay = value_or(root, "step_delay", cfg.step_delay);
     cfg.max_time = value_or(root, "max_time", cfg.max_time);
+    cfg.moon_gravity = value_or(root, "moon_gravity", cfg.moon_gravity);
+    cfg.sun_gravity = value_or(root, "sun_gravity", cfg.sun_gravity);
 
     return cfg;
 }

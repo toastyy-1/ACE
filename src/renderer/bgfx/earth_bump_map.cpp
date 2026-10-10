@@ -182,7 +182,7 @@ double EarthBumpMap::Elevation(const Vec3& r) const {
 }
 
 double EarthBumpMap::SurfaceRadius3D(const Vec3& r) const {
-    return EARTH_RADIUS + Elevation(r);
+    return planet::EARTH.radius + Elevation(r);
 }
 
 double EarthBumpMap::SurfaceRadius2D(double lat_deg, double lon_deg) const {

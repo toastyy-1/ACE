@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "sim/inc/rocket.hpp"
-#include "constants.hpp"
+#include "sim_constants.hpp"
 #include <cmath>
 
 /**
@@ -17,7 +17,7 @@
  */
 static double pow_dens(double altitude, double& T, double rho_b, double T_b, double L, double layer_base_alt) {
     T = T_b + L * (altitude - layer_base_alt);
-    return rho_b * pow(( T / T_b ), (-1.0 * g0 / (R_d * L)) - 1);
+    return rho_b * pow(( T / T_b ), (-1.0 * consts::g0 / (consts::R_d * L)) - 1);
 }
 
 /**
@@ -31,7 +31,7 @@ static double pow_dens(double altitude, double& T, double rho_b, double T_b, dou
  */
 static double exp_dens(double altitude, double& T, double rho_b, double T_b, double layer_base_alt) {
     T = T_b;
-    return rho_b * exp(-1.0 * (g0 * (altitude - layer_base_alt)) / (R_d * T_b));
+    return rho_b * exp(-1.0 * (consts::g0 * (altitude - layer_base_alt)) / (consts::R_d * T_b));
 }
 
 /**
@@ -78,7 +78,7 @@ void atmosphere(double altitude, double& air_density, double& air_pressure, doub
         air_density = exp_dens(altitude, T, 0.000006958, 186.87, 86000);
     }
 
-    air_pressure = air_density * R_d * T;
-    speed_of_sound = sqrt(1.4 * R_d * T);
+    air_pressure = air_density * consts::R_d * T;
+    speed_of_sound = sqrt(1.4 * consts::R_d * T);
     mu = 1.458e-6 * pow(T, 1.5) / (T + 110.4);
 }

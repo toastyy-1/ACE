@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "sim/inc/rocket.hpp"
-#include "constants.hpp"
+#include "sim_constants.hpp"
+#include "planetary_constants.hpp"
 #include "fc/inc/fc_api.h"
 #include <cmath>
 #include <algorithm>
@@ -219,7 +220,7 @@ static Vec3 contact_vel_change(const Vec3& r_c, const Vec3& J, const Vec3& I, do
  */
 void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
     // the ground supplies whatever force keeps the rocket riding along with the surface
-    Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
+    Vec3 w_earth = {0, 0, planet::EARTH.rotation_rate};
     a = w_earth.cross(w_earth.cross(r));
 
     // find vector components in the body frame
@@ -250,7 +251,7 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
         if (v_slip.mag() > 1e-9) {
             Vec3 slip_dir = v_slip.unit();
             double friction = std::min(v_slip.mag() / contact_vel_change(r_contact_from_cm, slip_dir, I, m_end).dot(slip_dir),
-                                       GROUND_FRICTION_COEFF * impulse_body.mag());
+                                       consts::GROUND_FRICTION_COEFF * impulse_body.mag());
             impulse_body -= slip_dir * friction;
         }
 
@@ -285,7 +286,7 @@ void Rocket::apply_ground_dynamics(const Vec3& I, double m_end, double dt) {
 KinematicModifier Rocket::kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn) {
     KinematicModifier drag = calc_drag_kinematics(r_i, v_i, q_i, w_i, m_i, props);
     KinematicModifier prop = calc_propulsion_kinematics(r_i, v_i, q_i, w_i, m_i, props, t_burn);
-    Vec3 grav = calc_gravity_accel(r_i, GM_EARTH, J2, EARTH_RADIUS);
+    Vec3 grav = calc_gravity_accel(r_i, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius);
 
     KinematicModifier state;
     state.accel = drag.accel + prop.accel + grav;
@@ -304,7 +305,7 @@ void Rocket::update_dynamics(double current_time) {
     Vec3 I = I_body;
 
     // time step for the simulation
-    double dt = TIME_STEP;
+    double dt = consts::TIME_STEP;
 
     Stage& s = active_stage();
 
@@ -412,7 +413,7 @@ void Rocket::update_dynamics(double current_time) {
     altitude = r.mag() - surface_r; // the ground contact may have moved the rocket
 
     // gravity, drag, and thrust at new position
-    Vec3 g_end = calc_gravity_accel(r, GM_EARTH, J2, EARTH_RADIUS);
+    Vec3 g_end = calc_gravity_accel(r, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius);
     KinematicModifier drag_end = calc_drag_kinematics(r, v, q_rocket, w, m_end, props);
     KinematicModifier prop_end = calc_propulsion_kinematics(r, v, q_rocket, w, m_end, props, burn_time);
 
@@ -548,10 +549,10 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
     start_state.origin_q_eci = q;
 
     // sitting on the pad
-    Vec3 w_earth = {0, 0, EARTH_ROTATION_RATE};
+    Vec3 w_earth = {0, 0, planet::EARTH.rotation_rate};
     w = rotate_by_quat(q.conjugate(), w_earth);
     a = w_earth.cross(w_earth.cross(origin_pos));
-    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos, GM_EARTH, J2, EARTH_RADIUS));
+    a_spec = rotate_by_quat(q.conjugate(), a - calc_gravity_accel(origin_pos, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius));
 }
 
 /**
@@ -561,20 +562,20 @@ void Rocket::set_start(double origin_latitude, double origin_longitude, double t
  * @param target_longitude
  */
 void Rocket::set_start_orbit(const OrbitElements& orbit, double target_latitude, double target_longitude) {
-    double sma = orbit.semi_major_axis * KM_TO_M;
+    double sma = orbit.semi_major_axis * consts::KM_TO_M;
     double e   = orbit.eccentricity;
-    double nu  = orbit.true_anomaly * DEG_TO_RAD;
+    double nu  = orbit.true_anomaly * consts::DEG_TO_RAD;
 
     // in perifocal frame
     double p = sma * (1.0 - e * e);
     double r_pf = p / (1.0 + e * cos(nu));
-    double v_pf = sqrt(GM_EARTH / p);
+    double v_pf = sqrt(planet::EARTH.gm / p);
     Vec3 r_perifocal = {r_pf * cos(nu), r_pf * sin(nu), 0};
     Vec3 v_perifocal = {-v_pf * sin(nu), v_pf * (e + cos(nu)), 0};
 
     // perifocal to ECI
     auto axis_quat = [](double angle_deg, const Vec3& axis) {
-        double half = angle_deg * DEG_TO_RAD / 2;
+        double half = angle_deg * consts::DEG_TO_RAD / 2;
         return Quat{cos(half), sin(half) * axis.x, sin(half) * axis.y, sin(half) * axis.z};
     };
     Quat q_pf_to_eci = axis_quat(orbit.raan, {0, 0, 1}) * axis_quat(orbit.inclination, {1, 0, 0}) * axis_quat(orbit.arg_periapsis, {0, 0, 1});
@@ -593,6 +594,6 @@ void Rocket::set_start_orbit(const OrbitElements& orbit, double target_latitude,
     start_state.origin_q_eci = q;
 
     w = {0, 0, 0};
-    a = calc_gravity_accel(r, GM_EARTH, J2, EARTH_RADIUS);
+    a = calc_gravity_accel(r, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius);
     a_spec = {0, 0, 0};
 }

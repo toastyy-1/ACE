@@ -5,7 +5,7 @@
 
 #include <random>
 #include "types.hpp"
-#include "constants.hpp"
+#include "planetary_constants.hpp"
 
 // simulated INS
 class INS {
@@ -24,10 +24,10 @@ class INS {
         if (rn < 1.0) return {0.0, 0.0, 0.0};
 
         double rn_sq = rn * rn;
-        double term = GM_EARTH / (rn_sq * rn);
+        double term = planet::EARTH.gm / (rn_sq * rn);
 
         double zr2 = (r.z * r.z) / rn_sq;
-        double j2_factor = 1.5 * J2 * (EARTH_RADIUS * EARTH_RADIUS) / rn_sq;
+        double j2_factor = 1.5 * planet::EARTH.j2 * (planet::EARTH.radius * planet::EARTH.radius) / rn_sq;
 
         return {
             -term * r.x * (1.0 + j2_factor * (1.0 - 5.0 * zr2)),

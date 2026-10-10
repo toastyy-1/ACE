@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../types.hpp"
-#include "../constants.hpp"
+#include "../planetary_constants.hpp"
 #include <vector>
 
 // Backend-neutral chunked LOD for a planet surface (KSP "PQS" style). The sphere
@@ -39,7 +39,7 @@ struct TerrainLodCamera {
 };
 
 struct TerrainLodParams {
-    double radius         = EARTH_RADIUS;   // sea-level radius (m)
+    double radius         = planet::EARTH.radius;   // sea-level radius (m)
     double max_elevation  = 0.0;            // highest terrain above sea level (m), for bounds
     int    min_level      = 2;              // always split at least this far (keeps the far globe round)
     int    max_level      = 15;             // deepest split (Earth: ~300 m chunks)

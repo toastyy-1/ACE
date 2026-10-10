@@ -221,7 +221,7 @@ KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, con
 
     // calculate the properties of the air
     double air_density, air_pressure, speed_of_sound, mu;
-    atmosphere(r.mag() - EARTH_RADIUS, air_density, air_pressure, speed_of_sound, mu);
+    atmosphere(r.mag() - planet::EARTH.radius, air_density, air_pressure, speed_of_sound, mu);
 
     // calculate variables relating to the geometry of the craft
     double diameter = 2.0 * props.radius;
@@ -291,7 +291,7 @@ KinematicModifier Rocket::calc_drag_kinematics(const Vec3& r, const Vec3& v, con
     Vec3 aero_torque = r_cp.cross(drag_force_body);
 
     // affect pitch/yaw rate relative to the rotating atmosphere
-    Vec3 w_earth_body = rotate_by_quat(q.conjugate(), Vec3{0, 0, EARTH_ROTATION_RATE});
+    Vec3 w_earth_body = rotate_by_quat(q.conjugate(), Vec3{0, 0, planet::EARTH.rotation_rate});
     aero_torque += damping_moment(w - w_earth_body, air_density, diameter, z_cm, total_len - z_cm);
 
     return {drag_a, aero_torque};

@@ -9,7 +9,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include "constants.hpp"
+#include "sim_constants.hpp"
 
 
 namespace sim {
@@ -43,8 +43,10 @@ namespace sim {
         // rocket placement process                                                                  //
         ///////////////////////////////////////////////////////////////////////////////////////////////
         SimConfig config = load_sim_config("config/sim.yaml");
-        TIME_STEP = config.time_step;
-        STEP_DELAY = config.step_delay;
+        consts::TIME_STEP = config.time_step;
+        consts::STEP_DELAY = config.step_delay;
+        moon_gravity = config.moon_gravity;
+        sun_gravity = config.sun_gravity;
 
         for (const RocketEntry& rocket : load_rocket_config("config/rocket.yaml")) {
             rocket_list.emplace_back(rocket.name, rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
@@ -82,7 +84,7 @@ namespace sim {
 
                 // delete rocket if it exploded
                 if (r.is_detonated()) {
-                    r.life_countdown -= TIME_STEP;
+                    r.life_countdown -= consts::TIME_STEP;
                     if (r.life_countdown <= 0) {
                         rocket_list.erase(rocket_list.begin() + i); // r dangles after this
                         i--;
@@ -91,7 +93,7 @@ namespace sim {
             }
 
             // increment time step
-            t += TIME_STEP;
+            t += consts::TIME_STEP;
 
             if (on_step) on_step(t, rocket_list);
 
@@ -102,7 +104,7 @@ namespace sim {
             }
 
             // delay sim a bit so the renderer has something to show
-            std::this_thread::sleep_for(std::chrono::duration<double>(STEP_DELAY));
+            std::this_thread::sleep_for(std::chrono::duration<double>(consts::STEP_DELAY));
         }
 
         publish_sim_states(rocket_list); // final states

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-EARTH_RADIUS = 6378137.0  # matches src/constants.hpp
+EARTH_RADIUS = 6378137.0  # matches src/planetary_constants.hpp
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"

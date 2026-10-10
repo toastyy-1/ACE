@@ -1,6 +1,6 @@
 #include "geometry.hpp"
 #include "rmath.hpp"
-#include "../constants.hpp"
+#include "../sim_constants.hpp"
 #include <cmath>
 
 namespace renderer::geom {
@@ -14,7 +14,7 @@ void appendCap(Mesh& m, float zc, float r, int sides, float nz, RColor col) {
     m.verts.push_back({ {0, 0, zc}, {0, 0, nz}, 0, 0, col });
     uint32_t ring = (uint32_t)m.verts.size();
     for (int j = 0; j <= sides; ++j) {
-        float a = (float)(TAU * j / sides);
+        float a = (float)(consts::TAU * j / sides);
         m.verts.push_back({ {r*cosf(a), r*sinf(a), zc}, {0, 0, nz}, 0, 0, col });
     }
     for (int j = 0; j < sides; ++j) {
@@ -35,7 +35,7 @@ void appendFrustum(Mesh& m, float z0, float z1, float r0, float r1,
 
     // Side: two stacked rings, smooth radial normals (with the profile slope).
     for (int j = 0; j <= sides; ++j) {
-        float a = (float)(TAU * j / sides), c = cosf(a), s = sinf(a);
+        float a = (float)(consts::TAU * j / sides), c = cosf(a), s = sinf(a);
         RVec3 nrm = rmath::normalize({ dz*c, dz*s, -dr });
         m.verts.push_back({ {r0*c, r0*s, z0}, nrm, 0, 0, col });   // base + 2j
         m.verts.push_back({ {r1*c, r1*s, z1}, nrm, 0, 0, col });   // base + 2j + 1
@@ -84,7 +84,7 @@ void appendRevolve(Mesh& m, const std::vector<RVec3>& profile,
         else if (i == rings-1) { dz = profile[i].x - profile[i-1].x;     dr = profile[i].y - profile[i-1].y; }
         else                   { dz = profile[i+1].x - profile[i-1].x;   dr = profile[i+1].y - profile[i-1].y; }
         for (int j = 0; j <= sides; ++j) {
-            float a = (float)(TAU * j / sides), c = cosf(a), s = sinf(a);
+            float a = (float)(consts::TAU * j / sides), c = cosf(a), s = sinf(a);
             RVec3 nrm = rmath::normalize({ dz*c, dz*s, -dr });
             m.verts.push_back({ {r*c, r*s, z}, nrm, 0, 0, col });
         }
@@ -113,7 +113,7 @@ Mesh buildSphere(float radius, int rings, int sectors, float lonOffset) {
         float phi = (float)(M_PI/2.0 - M_PI * i / rings);   // +90 (north) -> -90 (south)
         float cp = cosf(phi), sp = sinf(phi);
         for (int j = 0; j <= sectors; ++j) {
-            float lam = (float)(TAU * j / sectors);
+            float lam = (float)(consts::TAU * j / sectors);
             RVec3 n = { cp*cosf(lam), cp*sinf(lam), sp };   // ECI, +Z = north pole
             m.verts.push_back({ {n.x*radius, n.y*radius, n.z*radius}, n,
                                 (float)j/sectors + lonOffset, (float)i/rings, kWhite });

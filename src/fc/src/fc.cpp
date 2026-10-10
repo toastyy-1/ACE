@@ -106,8 +106,8 @@ void FlightController::init(double current_time) {
     cs.stage = ARMED;
     cs.time = current_time;
 
-    double tgt_lat = asin(veh.r_target_ecef.z / veh.r_target_ecef.mag()) * RAD_TO_DEG;
-    double tgt_long = atan2(veh.r_target_ecef.y, veh.r_target_ecef.x) * RAD_TO_DEG;
+    double tgt_lat = asin(veh.r_target_ecef.z / veh.r_target_ecef.mag()) * consts::RAD_TO_DEG;
+    double tgt_long = atan2(veh.r_target_ecef.y, veh.r_target_ecef.x) * consts::RAD_TO_DEG;
     cs.is = create_target_trajectory(tgt_lat, tgt_long);
 
     cs.r = cs.is.r_origin; // set initial r to starting r

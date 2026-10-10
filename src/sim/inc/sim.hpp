@@ -34,6 +34,8 @@ namespace sim {
         std::vector<RocketState> scratch_states; // sim thread only
 
         double t = 0;
+        bool moon_gravity = false; // set by config
+        bool sun_gravity = false; // set by config
         std::atomic<bool> running{true};
     };
 
