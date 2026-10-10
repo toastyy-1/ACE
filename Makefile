@@ -41,7 +41,7 @@ RAYLIB_SRCS := src/renderer/raylib/raylib_backend.cpp src/renderer/raylib/models
 RAYLIB_ARCH := -march=native
 TARGET      := program
 
-# JPL DE440 ephemeris for sun and moon gravity, every build fetches it if missing
+# JPL DE440 ephemeris for sun and moon gravity
 EPHEMERIS   := config/de440s.bsp
 
 # --- bgfx backend (`make bgfx`) ---
