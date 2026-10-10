@@ -28,7 +28,7 @@ inline constexpr planetaryBody EARTH {
 // MOON
 inline constexpr planetaryBody MOON {
     .radius = 1737400.0,
-    .rotation_rate = 2.6617e-6,     // sidereal period 27.3217 d (tidally locked)
+    .rotation_rate = 2.6617e-6,
     .gm = 4.9028e12,
     .j2 = 2.0321e-4,
     .mass = 7.342e22
@@ -37,7 +37,7 @@ inline constexpr planetaryBody MOON {
 // SUN
 inline constexpr planetaryBody SUN {
     .radius = 6.957e8,
-    .rotation_rate = 2.9032e-6,     // equatorial sidereal period ~25.05 d
+    .rotation_rate = 2.9032e-6,
     .gm = 1.32712440018e20,
     .j2 = 2.2e-7,
     .mass = 1.98841e30
