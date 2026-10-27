@@ -467,10 +467,10 @@ void FlightController::flight_controller_process(const fc_sensors& sensors, fc_c
 
     // send orientation change commands to the rcs thruster system if it is active
     if (cs.rcs_activated_flag) {
-        cmd.rcs_on = 1;
-        cmd.rcs_moment = calculate_rcs_moments_to_achieve_target_orientation();
+        cmd.debug_rcs_on = 1;
+        cmd.debug_rcs_moment = calculate_rcs_moments_to_achieve_target_orientation();
     }
     else {
-        cmd.rcs_on = 0;
+        cmd.debug_rcs_on = 0;
     }
 }

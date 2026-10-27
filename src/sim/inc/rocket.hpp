@@ -338,7 +338,7 @@ class Rocket {
     void apply_ground_dynamics(double m_end, double dt);
 
     // every acceleration (ECI) and every torque about the CoM (body) acting on the rocket
-    KinematicModifier kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn, double t); // gravity + drag + thrust + rcs
+    KinematicModifier kinematic_state(double m_i, const Vec3& r_i, const Vec3& v_i, const Quat& q_i, const Vec3& w_i, const RocketProps& props, double t_burn, double t); // gravity + drag + thrust + rcs + debug force
     Vec3 dop853_accel(const Vec3& r_i, const Vec3& v_i, double t);
         KinematicModifier calc_drag_kinematics(const Vec3& r, const Vec3& v, const Quat& q, const Vec3& w, double mass, const RocketProps& props);
         Vec3 calc_gravity_accel(const Vec3& r, const double GM, const double J2, const double R, const double t);

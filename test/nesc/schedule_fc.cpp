@@ -5,6 +5,7 @@
 //   light, separate, cutoff, launch_abort
 //   rcs x y z        rcs on with this body frame torque (N-m), clamped to the stage's rcs_max_moment
 //   rcs_off
+//   force x y z      ECI force on the CoM (N), force 0 0 0 to stop it
 //   gimbal w x y z   nozzle quaternion relative to the body, clamped to the stage's gimbal_range_deg
 
 #include <fstream>
@@ -34,7 +35,7 @@ fc_state* fc_init(const fc_vehicle*) {
         if (!(in >> e.t >> e.name)) continue;
         for (double a; in >> a;) e.args.push_back(a);
 
-        size_t n = e.name == "rcs" ? 3 : e.name == "gimbal" ? 4 : 0;
+        size_t n = e.name == "rcs" || e.name == "force" ? 3 : e.name == "gimbal" ? 4 : 0;
         if (e.args.size() != n) {
             std::cerr << "config error: fc_schedule.txt '" << line << "' needs " << n << " numbers after the command, ignoring\n";
             continue;
@@ -52,10 +53,11 @@ void fc_update(fc_state* s, const fc_sensors* sensors, fc_commands* cmd) {
         cmd->launch_abort |= e.name == "launch_abort";
         cmd->cutoff |= e.name == "cutoff";
         if (e.name == "rcs") {
-            cmd->rcs_on = 1;
-            cmd->rcs_moment = {e.args[0], e.args[1], e.args[2]};
+            cmd->debug_rcs_on = 1;
+            cmd->debug_rcs_moment = {e.args[0], e.args[1], e.args[2]};
         }
-        if (e.name == "rcs_off") cmd->rcs_on = 0;
+        if (e.name == "rcs_off") cmd->debug_rcs_on = 0;
+        if (e.name == "force") cmd->debug_apply_force = {e.args[0], e.args[1], e.args[2]};
         if (e.name == "gimbal") cmd->gimbal = {e.args[0], e.args[1], e.args[2], e.args[3]};
         s->events.erase(s->events.begin());
     }

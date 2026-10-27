@@ -98,7 +98,7 @@ void Rocket::apply_fc_commands() {
 
     set_engine_orientation(fc_cmd.gimbal);
 
-    if (fc_cmd.rcs_on) {
+    if (fc_cmd.debug_rcs_on) {
         rcs_on();
     }
     else {
@@ -173,7 +173,7 @@ Vec3 Rocket::calc_rcs_torque() const {
     if (!rcs_active) return {0, 0, 0};
 
     // cap moments
-    const Vec3& m = fc_cmd.rcs_moment;
+    const Vec3& m = fc_cmd.debug_rcs_moment;
     const Vec3& max = active_stage().rcs_max_capable_moment;
     return {
         std::clamp(m.x, -max.x, max.x),

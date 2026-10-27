@@ -9,9 +9,9 @@
  *
  * this is the only header a flight controller needs to include.
  * 
- * To build with specific flight controller code in mind please run:
+ * to build with specific flight controller code in mind please run:
  *     make FC_SRC=src/fc/src/fc.c
- *   or if your FC has multiple files (probably)
+ *   or if the FC has multiple files (probably)
  *     make FC_SRC="src/fc/src/fc.c src/fc/src/file2.c"
  *
  * the sim calls fc_update once per time step. it hands you the sensors and you fill in the
@@ -54,9 +54,7 @@ typedef struct fc_quat { double w, x, y, z; } fc_quat;
 
 /**
  * stage spec set by the configuration file (sim.yaml). this is the starting state of the rocket and
- * will not be updated constantly. This is simulating you writing your launch vehicle's data 
- * into the flight controller so you dont have to hardcode it. You can use this if you want
- * but you dont have to
+ * will not be updated constantly
  */
 typedef struct fc_stage {
     int id;
@@ -88,7 +86,7 @@ typedef struct fc_vehicle {
     const fc_stage* stages;         /* num_stages entries */
 
     fc_vec3 r_origin_eci;           /* launch point at t = 0 (m, ECI) */
-    fc_quat q_origin_eci;           /* launch attitude, body +z is the nose */
+    fc_quat q_origin_eci;           /* launch attitude, body +z is nose */
     fc_vec3 r_target_ecef;          /* aim point, earth fixed. its norm is the terrain radius there */
 
     double time_step;               /* sim step, also the fc_update period (s) */
@@ -108,7 +106,7 @@ typedef struct fc_sensors {
 
     // this exists to evaluate the gravity at a current position in the sim
     // you should ignore this and apply your own gravity model based on current position
-    // if you want your fc to be real, but you can use this for debug if that's too hard at the moment
+    // if you want the fc to be real, but you can use this for debug if that's too hard at the moment
     fc_vec3 g;
 } fc_sensors;
 
@@ -131,15 +129,16 @@ int fc_active_stage(void);
  *   3 - light
  *   4 - launch_abort
  *   5 - gimbal
- *   6 - rcs_on / rcs_moment
+ *   6 - debug_rcs_on / debug_rcs_moment
+ *   7 - debug_apply_force
  *
- * light, cutoff, separate and launch_abort are one shot, the sim clears them before every fc_update.
+ * light, cutoff, separate and launch_abort are one shot active, and are cleared before every fc_update
  * everything else keeps whatever value you last wrote until you change it
  */
 typedef struct fc_commands {
     int light;              /* light the active stage's solid motor */
     int separate;           /* separate stage and ready the new stage for instructions */
-    int launch_abort;           /* blows the vehicle up on command (aura purposes) */
+    int launch_abort;       /* blows the vehicle up on command (aura purposes) */
 
     /**
      * kill the active stage's motor (permanent). cutoff_fraction is how much of a full step's worth
@@ -157,11 +156,19 @@ typedef struct fc_commands {
     fc_quat gimbal;
 
     /**
+     * @warning debug feature
      * rcs on/off and the torque it should apply to the stage in body frame (RCS is an experimental
      * feature so it is not very fancy). moments past the stage's rcs_max_moment are clamped by the sim
      */
-    int rcs_on;
-    fc_vec3 rcs_moment;
+    int debug_rcs_on;
+    fc_vec3 debug_rcs_moment;
+
+    /**
+     * @warning debug feature 
+     * apply a force vector to the rocket outside of the propulsion, use for experimenting with orbits and such
+     * this force is applied at the CoM as a vector in ECI
+     */
+    fc_vec3 debug_apply_force;
 } fc_commands;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -169,7 +176,7 @@ typedef struct fc_commands {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * your flight controller's state. the sim never looks inside it, so define
+ * the flight controller's state. the sim never looks inside it, so define
  * struct fc_state however you like
  */
 typedef struct fc_state fc_state;
@@ -198,7 +205,7 @@ void fc_free(fc_state* state);
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * C++ fc files already have these operators by including types.hpp. But if your FC is in C (likely) they exist so you dont
+ * C++ fc files already have these operators by including types.hpp. But if the FC is in C (likely) they exist so you dont
  * have to write all of the helper components by hand to interface with this api (you're welcome)
  */
 

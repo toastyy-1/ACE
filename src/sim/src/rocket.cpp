@@ -297,7 +297,7 @@ KinematicModifier Rocket::kinematic_state(double m_i, const Vec3& r_i, const Vec
     Vec3 grav = calc_gravity_accel(r_i, planet::EARTH.gm, planet::EARTH.j2, planet::EARTH.radius, t);
 
     KinematicModifier state;
-    state.accel = drag.accel + prop.accel + grav;
+    state.accel = drag.accel + prop.accel + grav + fc_cmd.debug_apply_force / m_i;
     state.torque = drag.torque + prop.torque + calc_rcs_torque();
     return state;
 }
@@ -431,7 +431,7 @@ void Rocket::update_dynamics_6DoF_RK4(double current_time) {
     }
     else {
         // calculate RK4 total acceleration vector
-        a = g_end + drag_end.accel + prop_end.accel;
+        a = g_end + drag_end.accel + prop_end.accel + fc_cmd.debug_apply_force / m_end;
     }
 
     // accelerometer measures everything except gravity, in the body frame
