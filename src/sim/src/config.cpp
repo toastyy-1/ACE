@@ -82,6 +82,12 @@ SimConfig load_sim_config(const std::string& path) {
     cfg.ephemeris = value_or(root, "ephemeris", cfg.ephemeris);
     cfg.epoch = value_or(root, "epoch", cfg.epoch);
 
+    std::string integrator = value_or(root, "integrator", std::string("rk4"));
+    cfg.dop853 = integrator == "dop853";
+    if (integrator != "rk4" && integrator != "dop853") {
+        std::cerr << "config error: '" << path << "' integrator must be rk4 or dop853, using rk4\n";
+    }
+
     std::string gravity = value_or(root, "gravity", std::string("j2"));
     cfg.inverse_square_gravity = gravity == "inverse_square";
     if (gravity != "j2" && gravity != "inverse_square") {

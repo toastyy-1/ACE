@@ -25,6 +25,7 @@ namespace sim {
         SimConfig config = load_sim_config("config/sim.yaml");
         consts::TIME_STEP = config.time_step;
         consts::STEP_DELAY = config.step_delay;
+        consts::DOP853 = config.dop853;
         max_time = config.max_time;
         moon_gravity = config.moon_gravity;
         sun_gravity = config.sun_gravity;

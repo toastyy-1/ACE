@@ -386,8 +386,13 @@ void Rocket::update_dynamics_6DoF_RK4(double current_time) {
     Quat delta_q = (k1_q + k2_q*2 + k3_q*2 + k4_q) * (dt / 6);
 
     // apply changes to rocket
-    r += delta_r;
-    v += delta_v;
+    if (consts::DOP853) {
+        update_dynamics_3DoF_DOP853(current_time);
+    }
+    else {
+        r += delta_r;
+        v += delta_v;
+    }
     w += delta_w;
     q_rocket += delta_q;
 

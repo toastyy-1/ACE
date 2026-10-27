@@ -10,6 +10,9 @@ sun_gravity: true    # include sun gravity
 ephemeris: config/de440s.bsp    # JPL DE440
 epoch: "2026-10-10T12:00:00"    # UTC date and time at sim start
 
+# integrator
+integrator: rk4 # rk4 or dop853, !!!NOTE: dop853 is 3dof
+
 # aerodynamics
 drag: true
 

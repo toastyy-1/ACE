@@ -28,6 +28,7 @@ struct SimConfig {
     bool moon_gravity = true; 
     bool sun_gravity = true;
     bool drag = true;
+    bool dop853 = false;
     std::string ephemeris = "config/de440s.bsp";
     std::string epoch = "2026-01-01T00:00:00";
     bool inverse_square_gravity = false;

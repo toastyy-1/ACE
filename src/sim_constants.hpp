@@ -10,6 +10,7 @@ namespace consts {
 // GLOBAL TIME STEP FOR SIMULATION AND SUCH THINGS (overwritten by config)
 inline double STEP_DELAY = 0.001;
 inline double TIME_STEP = 0.01; // seconds
+inline bool DOP853 = false;
 
 // Math
 constexpr double TAU        = 6.28318530717958647692;
