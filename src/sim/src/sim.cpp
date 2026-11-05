@@ -68,10 +68,11 @@ namespace sim {
         ///////////////////////////////////////////////////////////////////////////////////////////////
         // rocket placement process                                                                  //
         ///////////////////////////////////////////////////////////////////////////////////////////////
+        ImuConfig imu = load_imu_config("config/imu.yaml");
         for (const RocketEntry& rocket : load_rocket_config("config/rocket.yaml")) {
             rocket_list.emplace_back(rocket.name, rocket.origin_lat, rocket.origin_lon, rocket.target_lat, rocket.target_lon,
                                      rocket.props, rocket.track_data, rocket.export_interval,
-                                     rocket.start_in_orbit, rocket.orbit, rocket.start_in_eci, rocket.eci_position, rocket.eci_velocity, rocket.attitude, rocket.body_rates, moon_gravity, sun_gravity, drag, &ephem);
+                                     rocket.start_in_orbit, rocket.orbit, rocket.start_in_eci, rocket.eci_position, rocket.eci_velocity, rocket.attitude, rocket.body_rates, moon_gravity, sun_gravity, drag, &ephem, imu);
         }
 
         // configure the rocket for starting settings

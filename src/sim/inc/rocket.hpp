@@ -192,7 +192,8 @@ class Rocket {
     Rocket(const std::string& name, double origin_latitude, double origin_longitude, double target_latitude,
            double target_longitude, const RocketProps& props, bool track_data, double export_interval,
            bool start_in_orbit, const OrbitElements& orbit, bool start_in_eci, const Vec3& eci_position, const Vec3& eci_velocity,
-           const Quat& attitude, const Vec3& body_rates, bool moon_gravity, bool sun_gravity, bool drag, const Ephemeris* ephem);
+           const Quat& attitude, const Vec3& body_rates, bool moon_gravity, bool sun_gravity, bool drag, const Ephemeris* ephem,
+           const ImuConfig& imu);
     ~Rocket();
 
     ///////////////////////////////////////////////////////////////////////////////////////////////

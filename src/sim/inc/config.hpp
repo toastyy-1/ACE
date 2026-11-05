@@ -45,5 +45,8 @@ SimConfig load_sim_config(const std::string& path);
 // reads the rocket config file
 std::vector<RocketEntry> load_rocket_config(const std::string& path);
 
+// read the imu config file
+ImuConfig load_imu_config(const std::string& path);
+
 // reads a thrust curv
 ThrustCurve load_thrust_curve(const std::string& path, const double total_initial_prop_mass_for_stage);

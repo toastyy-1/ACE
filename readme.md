@@ -68,6 +68,7 @@ The sim is set up by two YAML files. If you decide not to add a field it will re
 
 - `config/sim.yaml`: sim settings (time step and such)
 - `config/rocket.yaml`: every rocket, its geometry, launch site/target, and stages
+- `config/imu.yaml`: error model of the INS sensors the FC reads
 
 ### `sim.yaml`
 
@@ -165,6 +166,23 @@ rockets:
         thrust_curve: other_booster.csv
         # ...
 ```
+
+### `imu.yaml`
+
+| key | default | meaning |
+| --- | --- | --- |
+| `seed` | `94058` | noise random seed |
+| `accelerometer` / `gyroscope` | — | — |
+
+#### Per sensor
+
+| key | default (acc / gyro) | meaning |
+| --- | --- | --- |
+| `noise_std` | `0.001` / `0.0001` | white noise standard deviation per sample |
+| `bias` | `[0, 0, 0]` | constant bias per axis |
+| `bias_walk` | `0.0` | bias random walk |
+| `scale_factor` | `0.0` | scale factor error in % |
+| `range` | `0.0` | saturation per axis |
 
 ---
 

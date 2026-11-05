@@ -291,6 +291,53 @@ std::vector<RocketEntry> load_rocket_config(const std::string& path) {
 }
 
 /**
+ * @brief reads one sensor's error model
+ * @param root imu yaml root
+ * @param key sensor's key (accelerometer or gyroscope)
+ * @param s sensor defaults, missing keys keep them
+ * @param path imu yaml file, for error messages
+ * @return the sensor's error model
+ */
+static ImuSensorConfig read_imu_sensor(const fkyaml::node& root, const char* key, ImuSensorConfig s, const std::string& path) {
+    if (!root.is_mapping() || !root.contains(key)) return s;
+    const fkyaml::node& n = root[key];
+
+    ImuSensorConfig fallback = s;
+    s.noise_std = value_or(n, "noise_std", s.noise_std);
+    s.bias_walk = value_or(n, "bias_walk", s.bias_walk);
+    s.scale_factor = value_or(n, "scale_factor", s.scale_factor);
+    s.range = value_or(n, "range", s.range);
+    if (n.is_mapping() && n.contains("bias") && !read_vec3(n, "bias", s.bias)) {
+        std::cerr << "config error: '" << path << "' " << key << " bias must be 3 numbers, using default\n";
+    }
+    if (s.noise_std < 0 || s.bias_walk < 0 || s.range < 0) {
+        std::cerr << "config error: '" << path << "' " << key << " noise_std, bias_walk, and range can't be negative, using defaults\n";
+        s.noise_std = fallback.noise_std;
+        s.bias_walk = fallback.bias_walk;
+        s.range = fallback.range;
+    }
+    return s;
+}
+
+/**
+ * @brief reads the imu error model, used by every rocket's INS
+ * @param path imu yaml file, if it doesn't exist the defaults are used
+ * @return imu settings, missing keys keep their defaults
+ */
+ImuConfig load_imu_config(const std::string& path) {
+    ImuConfig cfg;
+    if (!std::filesystem::exists(path)) return cfg;
+
+    fkyaml::node root = parse_yaml(path);
+
+    cfg.seed = value_or(root, "seed", cfg.seed);
+    cfg.acc = read_imu_sensor(root, "accelerometer", cfg.acc, path);
+    cfg.gyr = read_imu_sensor(root, "gyroscope", cfg.gyr, path);
+
+    return cfg;
+}
+
+/**
  * @brief reads a thrust curve csv. every row is `time (s), thrust (N)`, the first line may be a
  * header and blank lines are skipped
  * @param path csv file to read

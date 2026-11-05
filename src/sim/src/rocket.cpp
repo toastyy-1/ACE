@@ -31,12 +31,14 @@
  * @param sun_gravity include the sun's gravity
  * @param drag include aerodynamic forces
  * @param ephem sun and moon positions, must be loaded if either of the above is true
+ * @param imu error model of the rockets INS sensors
  */
 Rocket::Rocket(const std::string& rocket_name, double origin_latitude, double origin_longitude, double target_latitude,
                double target_longitude, const RocketProps& rocket_props, bool track_data, double export_interval,
                bool start_in_orbit, const OrbitElements& orbit, bool start_in_eci, const Vec3& eci_position, const Vec3& eci_velocity,
-               const Quat& attitude, const Vec3& body_rates, bool moon_gravity, bool sun_gravity, bool drag, const Ephemeris* ephem)
-    : moon_gravity(moon_gravity), sun_gravity(sun_gravity), ephem(ephem), drag(drag) {
+               const Quat& attitude, const Vec3& body_rates, bool moon_gravity, bool sun_gravity, bool drag, const Ephemeris* ephem,
+               const ImuConfig& imu)
+    : ins(imu), moon_gravity(moon_gravity), sun_gravity(sun_gravity), ephem(ephem), drag(drag) {
     if (start_in_orbit)    set_start_orbit(orbit, attitude, body_rates, target_latitude, target_longitude);
     else if (start_in_eci) set_start_eci(eci_position, eci_velocity, attitude, body_rates, target_latitude, target_longitude);
     else                set_start(origin_latitude, origin_longitude, target_latitude, target_longitude);
